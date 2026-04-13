@@ -1,0 +1,7 @@
+[project]
+name = "shanbei"
+version = "0.0.1_Alpha"
+description = "第三方扇贝客户端"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.28.1","yarl>=1.23.0"]
