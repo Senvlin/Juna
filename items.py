@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 from yarl import URL
 
@@ -29,7 +30,7 @@ class Word:
     """
 
     id: str
-    type_of: str
+    type_of: Literal["NEW", "REVIEW"]
     audio_uk_url: URL
     audio_us_url: URL
     ipa_uk: str
@@ -50,3 +51,17 @@ class Word:
             }
             cleaned_senses.append(cleaned_sense)
         self.senses = cleaned_senses
+
+
+@dataclass
+class Vocab_note:
+    content: str
+    id: str
+    remark: str
+    tag: dict
+    user_id: str
+    user_info: dict[Literal["nickname"], str] | None
+    vocab_id: str
+
+    def __post_init__(self):
+        self.content = self.content.replace("\n", ";")

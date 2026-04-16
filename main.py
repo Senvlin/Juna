@@ -3,11 +3,12 @@ import configparser
 import json
 import math
 from pathlib import Path
+from typing import Literal
 
 import httpx
 
 from decode import Decoder
-from items import Material_book, Word
+from items import Material_book, Vocab_note, Word
 
 
 class CookieManager:
@@ -59,7 +60,7 @@ class ShanbayAPI:
             },
         )
 
-    def _parse_cookies(self, cookie_str) -> dict:
+    def _parse_cookies(self, cookie_str: str) -> dict:
         """
         将 cookie 字符串转换为字典, 方便 httpx 处理
         """
@@ -107,7 +108,12 @@ class ShanbayAPI:
             print(f"请求教材 ID 失败: {e}")
             return None
 
-    async def get_words_in_page(self, material_book_id, page, words_type) -> dict | str:
+    async def get_words_in_page(
+        self,
+        material_book_id: str,
+        page,
+        words_type: Literal["NEW", "REVIEW"],
+    ) -> dict | str:
         """
         获取指定页码的单词
         :param words_type: 'NEW'(新词)或'REVIEW'(复习)
@@ -154,8 +160,15 @@ class ShanbayAPI:
         return all_words
 
     async def get_words_all(
-        self, material_book: Material_book, words_type
+        self,
+        material_book: Material_book,
+        words_type: Literal["NEW", "REVIEW"],
     ) -> list[Word]:
+        """
+        并发获取所有符合New/Review的单词
+
+        统一用asyncio.gather()处理异常与结果，异常将被打印到控制台
+        """
         all_words = []
 
         print(f"开始获取 {words_type} 单词...")
@@ -181,6 +194,16 @@ class ShanbayAPI:
                 continue
         return all_words
 
+    async def get_vocab_notes(self, word: Word) -> list[Vocab_note] | list[None]:
+        url = "/wordsapp/user_vocab_notes/agg"
+        resp = await self.client.get(url, params={"vocab_id": word.id, "limit": 15})
+        resp.raise_for_status()
+        raw_json = resp.json()
+        vocab_notes: dict = raw_json.get("vocab_notes")
+        if not vocab_notes:
+            return []
+        return [Vocab_note(**note) for note in vocab_notes]
+
     async def close(self):
         """
         关闭客户端连接
@@ -192,7 +215,6 @@ async def main():
     cookie_manager = CookieManager()
     cookie = cookie_manager.get_cookie("COOKIE")
     api = ShanbayAPI(cookie)
-
     try:
         book = await api.get_default_material_book()
         if book:
@@ -203,7 +225,6 @@ async def main():
 
             review_words = await api.get_words_all(book, "REVIEW")
             print(f"今日复习词总数: {len(review_words)}")
-
     finally:
         await api.close()
 
