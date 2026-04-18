@@ -7,7 +7,7 @@ from shanbei_api import ShanbayAPI
 
 
 class CookieManager:
-    def __init__(self, filename="config.ini"):
+    def __init__(self, filename="../config.ini"):
         self.filename = Path(filename)
         self.config = configparser.ConfigParser(interpolation=None)
         self._load()
