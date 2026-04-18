@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, HttpUrl, field_validator
+from pydantic import BaseModel, HttpUrl, field_validator, model_validator
 
 
 class SenseItem(BaseModel):
@@ -57,3 +57,14 @@ class Vocab_note(BaseModel):
     def lines_to_semicolon(cls, v):
         if isinstance(v, str):
             return v.replace("\n", ";")
+
+
+class WordTask(BaseModel):
+    all_word: list[WordItem]
+    total: int | None = None
+
+    @model_validator(mode="after")
+    def word_count(self):
+        if self.total is None:
+            self.total = len(self.all_word)
+        return self

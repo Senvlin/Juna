@@ -1,5 +1,4 @@
 import asyncio
-import json
 import math
 from pathlib import Path
 from typing import Literal
@@ -118,10 +117,6 @@ class ShanbayAPI:
 
             raw_words = data.get("data", {})
             decoded_words = Decoder.decode(raw_words)
-            with open(
-                f"{EXPORT_DIR}\\words_{page}_{words_type}.json", "w", encoding="utf-8"
-            ) as f:
-                json.dump(decoded_words, f, ensure_ascii=False, indent=4)
             return decoded_words
 
         except httpx.HTTPError as e:
