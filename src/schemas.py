@@ -20,7 +20,7 @@ class Material_book(BaseModel):
     description: str
     icon_url: HttpUrl
     name: str
-    tag_ids: str
+    tag_ids: list[str]
     total_count: int
     new_count: int
     review_count: int
@@ -54,6 +54,6 @@ class Vocab_note(BaseModel):
 
     @field_validator("content", mode="before")
     @classmethod
-    def lines_to_semicolon(self, v):
+    def lines_to_semicolon(cls, v):
         if isinstance(v, str):
             return v.replace("\n", ";")
