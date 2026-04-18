@@ -1,7 +1,7 @@
 import configparser
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 
 from shanbei_api import ShanbayAPI
 
@@ -40,11 +40,7 @@ class CookieManager:
 app = FastAPI()
 
 
-@app.get("/")
-async def root():
-    cookie_manager = CookieManager()
-    cookie = cookie_manager.get_cookie("COOKIE")
-    api = ShanbayAPI(cookie)
+async def download_word(api: ShanbayAPI):
     book = await api.get_default_material_book()
     try:
         if book:
@@ -55,6 +51,14 @@ async def root():
 
             review_words = await api.get_words_all(book, "REVIEW")
             print(f"今日复习词总数: {len(review_words)}")
-        return {"message": "Hello, FastAPI"}
     finally:
         await api.close()
+
+
+@app.get("/")
+async def root(background_tasks: BackgroundTasks):
+    cookie_manager = CookieManager()
+    cookie = cookie_manager.get_cookie("COOKIE")
+    api = ShanbayAPI(cookie)
+    background_tasks.add_task(download_word, api)
+    return {"message": "Hello, FastAPI"}
