@@ -194,7 +194,7 @@ class ShanbayAPI:
                 continue
         return all_words
 
-    async def get_vocab_notes(self, word: Word) -> list[Vocab_note] | list[None]:
+    async def get_vocab_notes(self, word: Word) -> list[Vocab_note | None]:
         url = "/wordsapp/user_vocab_notes/agg"
         resp = await self.client.get(url, params={"vocab_id": word.id, "limit": 15})
         resp.raise_for_status()
@@ -204,6 +204,60 @@ class ShanbayAPI:
             return []
         return [Vocab_note(**note) for note in vocab_notes]
 
+    # TODO:等前端适配的时候再用这个
+    # async def submit_word(
+    #     self, object: Word, clk_too_easy, clk_hint, clk_know, clk_not_known
+    # ):
+    #     print(f"提交单词: {object.word}")
+    #     resp = await self.client.post(
+    #         "/lune/mlog",
+    #         json={
+    #             "action": "user_word_learning_click",
+    #             "biz": "mdefault",
+    #             "data": {
+    #                 "user_id": {},
+    #                 "word": object.word,
+    #                 "word_type": "1",
+    #                 "clk_too_easy": f"{clk_too_easy}",
+    #                 "clk_hint": f"{clk_hint}",
+    #                 "clk_know": f"{clk_know}",
+    #                 "clk_not_known": f"{clk_not_known}",
+    #             },
+    #         },
+    #     )
+
+    #     resp.raise_for_status()
+    # TODO: 同上
+    # async def sync_word(self, new_words: Iterable[Word], review_words: Iterable[Word]):
+    #     """
+    #     与服务器同步单词完成情况
+    #     """
+    #     url = "/wordsapp/user_material_books/bqydkq/learning/items/sync"
+    #     a = self.test_(new_words, review_words)
+    #     req = await self.client.put(url, json=a)
+    #     req.raise_for_status()
+
+    # def test_(self, new_words: Iterable[Word], review_words: Iterable[Word]):
+    #     a_items_known = [
+    #         {"failed_count": 0, "item_id": i.id, "schedule": 0} for i in new_words
+    #     ]
+    #     c_items_known = [
+    #         {
+    #             "failed_count": 0,
+    #             "item_id": i.id,
+    #             "schedule": 3, #schedule指错误之后要背诵的次数 3时为通过，每答对一次就+1
+    #             "updated_at": i.updated_at,
+    #         }
+    #         for i in review_words
+    #     ]
+    #     return {
+    #         "a_items": [],
+    #         "a_items_known": a_items_known,
+    #         "c_items": [],
+    #         "c_items_known": c_items_known,
+    #         "date": "2026-04-13",
+    #         "learning_time": 145,
+    #     }
     async def close(self):
         """
         关闭客户端连接
