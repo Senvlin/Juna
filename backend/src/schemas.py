@@ -43,7 +43,7 @@ class WordItem(BaseModel):
     updated_at: str
 
 
-class Vocab_note(BaseModel):
+class VocabNote(BaseModel):
     content: str
     id: str
     remark: str
@@ -60,11 +60,27 @@ class Vocab_note(BaseModel):
 
 
 class WordTask(BaseModel):
-    all_word: list[WordItem]
     total: int | None = None
+    all_word: list[WordItem]
 
     @model_validator(mode="after")
     def word_count(self):
         if self.total is None:
             self.total = len(self.all_word)
         return self
+
+
+class WordInteraction(BaseModel):
+    user_id: dict = {}
+    word: str
+    word_type: int = 1
+    clk_too_easy: int
+    clk_hint: int
+    clk_know: int
+    clk_not_known: int
+
+
+class WordLearningClick(BaseModel):
+    action: str = "user_word_learning_click"
+    biz: str = "default"
+    data: WordInteraction

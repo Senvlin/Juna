@@ -1,30 +1,11 @@
 import asyncio
 import math
-from pathlib import Path
 from typing import Literal
 
 import httpx
 
 from decode import Decoder
-from schemas import Material_book, Vocab_note, WordItem
-
-
-def get_download_dir():  # TODO: 将下载保存放入另一个文件中集中管理
-    try:
-        from winreg import HKEY_CURRENT_USER, OpenKey, QueryValueEx
-
-        key = OpenKey(
-            HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders",
-        )
-        download_path, _ = QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")
-        return Path(download_path)
-    except Exception:
-        # 如果读取注册表失败，回退到默认路径
-        return Path.home() / "Downloads"
-
-
-EXPORT_DIR = get_download_dir()
+from schemas import Material_book, VocabNote, WordItem, WordLearningClick
 
 
 class ShanbayAPI:
@@ -177,7 +158,7 @@ class ShanbayAPI:
                 continue
         return all_words
 
-    async def get_vocab_notes(self, word: WordItem) -> list[Vocab_note | None]:
+    async def get_vocab_notes(self, word: WordItem) -> list[VocabNote | None]:
         url = "/wordsapp/user_vocab_notes/agg"
         resp = await self.client.get(url, params={"vocab_id": word.id, "limit": 15})
         resp.raise_for_status()
@@ -185,31 +166,18 @@ class ShanbayAPI:
         vocab_notes: dict = raw_json.get("vocab_notes")
         if not vocab_notes:
             return []
-        return [Vocab_note(**note) for note in vocab_notes]
+        return [VocabNote(**note) for note in vocab_notes]
 
     # TODO:等前端适配的时候再用这个
-    # async def submit_word(
-    #     self, object: WordItem, clk_too_easy, clk_hint, clk_know, clk_not_known
-    # ):
-    #     print(f"提交单词: {object.word}")
-    #     resp = await self.client.post(
-    #         "/lune/mlog",
-    #         json={
-    #             "action": "user_word_learning_click",
-    #             "biz": "mdefault",
-    #             "data": {
-    #                 "user_id": {},
-    #                 "word": object.word,
-    #                 "word_type": "1",
-    #                 "clk_too_easy": f"{clk_too_easy}",
-    #                 "clk_hint": f"{clk_hint}",
-    #                 "clk_know": f"{clk_know}",
-    #                 "clk_not_known": f"{clk_not_known}",
-    #             },
-    #         },
-    #     )
+    async def submit_word(
+        self, object: WordItem, learning_click_item: WordLearningClick
+    ):
+        url = "/lune/mlog"
+        print(f"提交单词: {object.word}")
+        resp = await self.client.post(url, json=learning_click_item.model_dump())
 
-    #     resp.raise_for_status()
+        resp.raise_for_status()
+
     # TODO: 同上
     # async def sync_word(self, new_words: Iterable[WordItem], review_words: Iterable[WordItem]):
     #     """
