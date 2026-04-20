@@ -2,7 +2,8 @@ from typing import Literal
 
 from schemas import WordItem
 from shanbei_api import ShanbayAPI
-from src.services.download_service import CookieManager
+
+from backend.src.services.download_service import CookieManager
 
 cookie_manager = CookieManager()
 cookie = cookie_manager.get_cookie("COOKIE")
