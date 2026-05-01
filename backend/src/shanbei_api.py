@@ -3,18 +3,17 @@ import math
 from typing import Literal
 
 import httpx
-
 from decode import Decoder
 from schemas import Material_book, VocabNote, WordItem, WordLearningClick
 
 
 class ShanbayAPI:
-    def __init__(self, cookie):
+    def __init__(self, cookie: str):
         """
         初始化 API 客户端
         :param cookie: 扇贝网站的 Cookie 字符串, 用于身份验证
         """
-        self.cookie = cookie
+        self.cookie: str = cookie
         self.base_url = "https://apiv3.shanbay.com"
 
         self.client = httpx.AsyncClient(
@@ -169,11 +168,8 @@ class ShanbayAPI:
         return [VocabNote(**note) for note in vocab_notes]
 
     # TODO:等前端适配的时候再用这个
-    async def submit_word(
-        self, object: WordItem, learning_click_item: WordLearningClick
-    ):
+    async def submit_word(self, learning_click_item: WordLearningClick):
         url = "/lune/mlog"
-        print(f"提交单词: {object.word}")
         resp = await self.client.post(url, json=learning_click_item.model_dump())
 
         resp.raise_for_status()

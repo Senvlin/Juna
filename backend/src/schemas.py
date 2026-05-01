@@ -1,6 +1,14 @@
-from typing import Literal
+from typing import Generic, Literal, Optional, TypeVar
 
-from pydantic import BaseModel, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+
+T = TypeVar("T")
+
+
+class ApiResponse(BaseModel, Generic[T]):
+    code: int = Field(default=200, description="业务状态码")
+    message: str = Field(default="success", description="提示信息")
+    data: Optional[T] = None
 
 
 class SenseItem(BaseModel):
@@ -52,12 +60,6 @@ class VocabNote(BaseModel):
     user_info: dict[Literal["nickname"], str] | None
     vocab_id: str
 
-    @field_validator("content", mode="before")
-    @classmethod
-    def lines_to_semicolon(cls, v):
-        if isinstance(v, str):
-            return v.replace("\n", ";")
-
 
 class WordTask(BaseModel):
     total: int | None = None
@@ -66,7 +68,7 @@ class WordTask(BaseModel):
     @model_validator(mode="after")
     def word_count(self):
         if self.total is None:
-            self.total = len(self.all_word)
+            self.total: int = len(self.all_word)
         return self
 
 

@@ -6,7 +6,7 @@ from fastapi.responses import Response
 
 from backend.src.services.word_service import get_words_data
 
-router = APIRouter(prefix="/download", tags=["下载管理"])
+router = APIRouter(prefix="/api/download", tags=["下载管理"])
 
 
 @router.get("/word/{word_type}")
