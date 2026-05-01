@@ -77,6 +77,5 @@ pnpm dev
 
 - [扇贝网](https://www.shanbay.com) — 数据支持
 - [yihong0618/shanbay_remember](https://github.com/yihong0618/shanbay_remember) — Python API 解码器参考实现
-- [Deepseek](https://www.deepseek.com) - 前端页面辅助实现
 
 **仅供个人学习使用**
