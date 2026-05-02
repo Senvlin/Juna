@@ -1,229 +1,297 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import request from './utils/request';
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
+import request from "./utils/request";
 
 // ====== 状态 ======
-const appState = ref('welcome') // 'welcome' | 'learning' | 'detail' | 'completed'
-const userInput = ref('')
-const isCorrect = ref(null)
-const spellingMode = ref(false)
-const currentWordData = ref(null)
-const currentWordIndex = ref(0)
-const wordsData = ref([])
-const notes = ref([])
-const notesLoading = ref(false)
-const hasMoreNotes = ref(true)
-const progress = ref(0)
+const appState = ref("welcome"); // 'welcome' | 'learning' | 'detail' | 'summary' | 'completed'
+const userInput = ref("");
+const isCorrect = ref(null);
+const spellingMode = ref(false);
+const currentWordData = ref(null);
+const currentWordIndex = ref(0);
+const wordsData = ref([]);
+const notes = ref([]);
+const notesLoading = ref(false);
+const hasMoreNotes = ref(true);
+const progress = ref(0);
 
-const ukAudioRef = ref(null)
-const usAudioRef = ref(null)
-const notesContainerRef = ref(null)
-const spellingChars = ref([])
-const spellingInputRef = ref(null)
+const ukAudioRef = ref(null);
+const usAudioRef = ref(null);
+const notesContainerRef = ref(null);
+const spellingChars = ref([]);
+const spellingInputRef = ref(null);
+const wordResults = ref([]); // { word: WordItem, known: boolean }[]
 
 // ====== 计算属性 ======
-const totalWords = computed(() => wordsData.value.length)
+const totalWords = computed(() => wordsData.value.length);
 const progressPercent = computed(() =>
-  totalWords.value > 0 ? Math.round((currentWordIndex.value / totalWords.value) * 100) : 0
-)
+  totalWords.value > 0
+    ? Math.round((currentWordIndex.value / totalWords.value) * 100)
+    : 0,
+);
 
 // senses 按词性分组展示
 const groupedSenses = computed(() => {
-  if (!currentWordData.value?.senses) return []
+  if (!currentWordData.value?.senses) return [];
   return currentWordData.value.senses.map((s, i) => ({
     ...s,
-    index: i + 1
-  }))
-})
+    index: i + 1,
+  }));
+});
+
+// 当前批次（最近8个）的学习结果
+const currentBatch = computed(() => {
+  const total = wordResults.value.length;
+  const batchSize = 8;
+  const start = Math.max(0, total - batchSize);
+  return wordResults.value.slice(start, total);
+});
 
 // ====== 音频播放 ======
 const playAudio = (type) => {
-  const ref = type === 'uk' ? ukAudioRef : usAudioRef
+  const ref = type === "uk" ? ukAudioRef : usAudioRef;
   if (ref.value) {
-    ref.value.currentTime = 0
-    ref.value.play().catch((e) => console.log(e))
+    ref.value.currentTime = 0;
+    ref.value.play().catch((e) => console.log(e));
   }
-}
+};
 
 // ====== 单词数据获取 ======
 const getWordData = async () => {
   try {
-    const newResp = await request.get('/word/new')
-    const reviewResp = await request.get('/word/review')
-    const newWords = newResp.data || []
-    const reviewWords = reviewResp.data || []
-    const wordList = [...reviewWords, ...newWords] // 先学习新词，后复习旧词
-    const wordItems = wordList
+    const newResp = await request.get("/word/new");
+    const reviewResp = await request.get("/word/review");
+    const newWords = newResp.data || [];
+    const reviewWords = reviewResp.data || [];
+    const wordList = [...reviewWords, ...newWords]; // 先学习新词，后复习旧词
+    const wordItems = wordList;
     if (wordItems && wordItems.length > 0) {
-      wordsData.value = wordItems
-      currentWordData.value = wordItems[0]
-      currentWordIndex.value = 0
-      progress.value = 0
+      wordsData.value = wordItems;
+      currentWordData.value = wordItems[0];
+      currentWordIndex.value = 0;
+      progress.value = 0;
     }
   } catch (err) {
-    console.error('获取单词失败:', err)
+    console.error("获取单词失败:", err);
   }
-}
+};
 
 // ====== 笔记获取 ======
 const fetchNotes = async () => {
-  if (!currentWordData.value || notesLoading.value || !hasMoreNotes.value) return
-  notesLoading.value = true
+  if (!currentWordData.value || notesLoading.value || !hasMoreNotes.value)
+    return;
+  notesLoading.value = true;
   try {
-    const resp = await request.post('/word/note/', currentWordData.value)
-    const noteList = resp.data || []
-    notes.value = noteList
-    hasMoreNotes.value = noteList.length >= 15
+    const resp = await request.post("/word/note/", currentWordData.value);
+    const noteList = resp.data || [];
+    notes.value = noteList;
+    hasMoreNotes.value = noteList.length >= 15;
   } catch (err) {
-    console.error('获取笔记失败:', err)
-    notes.value = []
+    console.error("获取笔记失败:", err);
+    notes.value = [];
   } finally {
-    notesLoading.value = false
+    notesLoading.value = false;
   }
-}
+};
 
 // ====== 操作处理 ======
 const startLearning = async () => {
-  appState.value = 'learning'
-  await getWordData()
-}
+  appState.value = "learning";
+  await getWordData();
+};
 
 const handleKnown = async () => {
-  appState.value = 'detail'
-  await fetchNotes()
-}
+  wordResults.value.push({ word: { ...currentWordData.value }, known: true });
+  appState.value = "detail";
+  await fetchNotes();
+};
 
 const handleUnknown = async () => {
-  appState.value = 'detail'
-  await fetchNotes()
-}
+  wordResults.value.push({ word: { ...currentWordData.value }, known: false });
+  appState.value = "detail";
+  await fetchNotes();
+};
 
 const handleNext = () => {
-  const nextIdx = currentWordIndex.value + 1
-  if (nextIdx < wordsData.value.length) {
-    currentWordIndex.value = nextIdx
-    currentWordData.value = wordsData.value[nextIdx]
-    progress.value = nextIdx
-    spellingMode.value = false
-    isCorrect.value = null
-    userInput.value = ''
-    spellingChars.value = []
-    notes.value = []
-    hasMoreNotes.value = true
-    appState.value = 'learning'
-  } else {
-    appState.value = 'completed'
+  const studiedCount = wordResults.value.length;
+  const isBatchBoundary = studiedCount % 8 === 0;
+  const nextIdx = currentWordIndex.value + 1;
+  const hasMoreWords = nextIdx < wordsData.value.length;
+
+  if (isBatchBoundary || !hasMoreWords) {
+    // 每完成8个词，或所有词学完时 → 展示总结
+    appState.value = "summary";
+    return;
   }
-}
+
+  currentWordIndex.value = nextIdx;
+  currentWordData.value = wordsData.value[nextIdx];
+  progress.value = nextIdx;
+  spellingMode.value = false;
+  isCorrect.value = null;
+  userInput.value = "";
+  spellingChars.value = [];
+  notes.value = [];
+  hasMoreNotes.value = true;
+  appState.value = "learning";
+};
+
+// ====== 总结界面操作 ======
+const continueFromSummary = () => {
+  const nextIdx = currentWordIndex.value + 1;
+  if (nextIdx < wordsData.value.length) {
+    currentWordIndex.value = nextIdx;
+    currentWordData.value = wordsData.value[nextIdx];
+    progress.value = nextIdx;
+    spellingMode.value = false;
+    isCorrect.value = null;
+    userInput.value = "";
+    spellingChars.value = [];
+    notes.value = [];
+    hasMoreNotes.value = true;
+    appState.value = "learning";
+  } else {
+    appState.value = "completed";
+  }
+};
+
+const viewWordDetail = async (result) => {
+  currentWordData.value = result.word;
+  appState.value = "detail";
+  notes.value = [];
+  hasMoreNotes.value = true;
+  await fetchNotes();
+};
 
 const checkSpelling = () => {
-  if (!currentWordData.value) return
-  const typed = spellingChars.value.join('').toLowerCase()
-  if (!typed) return
+  if (!currentWordData.value) return;
+  const typed = spellingChars.value.join("").toLowerCase();
+  if (!typed) return;
   if (typed === currentWordData.value.word.toLowerCase()) {
-    isCorrect.value = true
+    isCorrect.value = true;
     setTimeout(() => {
-      spellingMode.value = false
-      isCorrect.value = null
-      spellingChars.value = []
-      userInput.value = ''
-    }, 1200)
+      spellingMode.value = false;
+      isCorrect.value = null;
+      spellingChars.value = [];
+      userInput.value = "";
+    }, 1200);
   } else {
-    isCorrect.value = false
+    isCorrect.value = false;
     setTimeout(() => {
       if (spellingChars.value.length >= currentWordData.value.word.length) {
-        isCorrect.value = null
-        spellingChars.value = []
-        userInput.value = ''
+        isCorrect.value = null;
+        spellingChars.value = [];
+        userInput.value = "";
       }
     }, 1200);
-
   }
-}
+};
 
 const onSpellingKeydown = (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    checkSpelling()
-    return
+  if (e.key === "Enter") {
+    e.preventDefault();
+    checkSpelling();
+    return;
   }
-  if (e.key === 'Backspace') {
-    e.preventDefault()
-    isCorrect.value = null
-    spellingChars.value = spellingChars.value.slice(0, -1)
-    return
+  if (e.key === "Backspace") {
+    e.preventDefault();
+    isCorrect.value = null;
+    spellingChars.value = spellingChars.value.slice(0, -1);
+    return;
   }
-  if (e.key.length === 1 && /[a-zA-Z]/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    e.preventDefault()
-    if (spellingChars.value.length < (currentWordData.value?.word?.length || 0)) {
-      isCorrect.value = null
-      spellingChars.value = [...spellingChars.value, e.key]
+  if (
+    e.key.length === 1 &&
+    /[a-zA-Z]/.test(e.key) &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey
+  ) {
+    e.preventDefault();
+    if (
+      spellingChars.value.length < (currentWordData.value?.word?.length || 0)
+    ) {
+      isCorrect.value = null;
+      spellingChars.value = [...spellingChars.value, e.key];
       // 自动检查：填满所有字母时
       if (spellingChars.value.length === currentWordData.value.word.length) {
-        checkSpelling()
+        checkSpelling();
       }
     }
   }
-}
+};
 
 // ====== 键盘事件 ======
 const handleKeyDown = (e) => {
   // 欢迎界面：回车开始
-  if (appState.value === 'welcome' && e.key === 'Enter') {
-    startLearning()
-    return
+  if (appState.value === "welcome" && e.key === "Enter") {
+    startLearning();
+    return;
   }
 
   // 学习界面
-  if (appState.value === 'learning') {
-    if (e.key === '1') {
-      handleKnown()
-    } else if (e.key === '2') {
-      handleUnknown()
-    } else if (e.key === 'Enter') {
+  if (appState.value === "learning") {
+    if (e.key === "1") {
+      handleKnown();
+    } else if (e.key === "2") {
+      handleUnknown();
+    } else if (e.key === "Enter") {
       if (!spellingMode.value) {
-        spellingMode.value = true
-        spellingChars.value = []
-        isCorrect.value = null
+        spellingMode.value = true;
+        spellingChars.value = [];
+        isCorrect.value = null;
         nextTick(() => {
-          spellingInputRef.value?.focus()
-        })
+          spellingInputRef.value?.focus();
+        });
       }
-    } else if (spellingMode.value && e.key === 'Escape') {
-      e.preventDefault()
-      spellingMode.value = false
-      isCorrect.value = null
-      spellingChars.value = []
-      userInput.value = ''
+    } else if (spellingMode.value && e.key === "Escape") {
+      e.preventDefault();
+      spellingMode.value = false;
+      isCorrect.value = null;
+      spellingChars.value = [];
+      userInput.value = "";
     }
-    return
+    return;
   }
 
   // 详情界面：回车下一个
-  if (appState.value === 'detail' && e.key === 'Enter') {
-    handleNext()
-    return
+  if (appState.value === "detail" && e.key === "Enter") {
+    handleNext();
+    return;
+  }
+
+  // 总结界面：回车继续
+  if (appState.value === "summary" && e.key === "Enter") {
+    continueFromSummary();
+    return;
   }
 
   // 完成界面：回车返回
-  if (appState.value === 'completed' && e.key === 'Enter') {
-    appState.value = 'welcome'
+  if (appState.value === "completed" && e.key === "Enter") {
+    appState.value = "welcome";
   }
-
-
-}
+};
 
 // ====== 生命周期 ======
 onMounted(() => {
-  window.addEventListener('keydown', handleKeyDown)
-})
+  window.addEventListener("keydown", handleKeyDown);
+});
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeyDown)
-})
+  window.removeEventListener("keydown", handleKeyDown);
+});
 </script>
-
 <template>
+  <!-- 传送到 body 的下一个按钮（必须在 template 内部） -->
+  <Teleport to="body">
+    <button v-if="appState === 'detail'" class="next-btn-fixed" @click="handleNext">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+      {{ currentWordIndex + 1 >= totalWords ? "完成" : "下一个" }}
+      <kbd>Enter</kbd>
+    </button>
+  </Teleport>
+
   <!-- ========== 欢迎界面 ========== -->
   <div v-if="appState === 'welcome'" class="welcome-screen">
     <div class="welcome-icon">📖</div>
@@ -248,25 +316,31 @@ onUnmounted(() => {
 
     <!-- 单词展示 -->
     <div class="word_display">
-      <!-- 普通模式：显示单词 -->
       <template v-if="!spellingMode">
         <span class="word-text">{{ currentWordData?.word }}</span>
       </template>
-
-      <!-- 拼写模式：在下划线上直接输入 -->
       <template v-else>
         <div class="spelling-container">
-          <div class="spelling-underscores" :class="{ 'is-correct': isCorrect === true, 'is-incorrect': isCorrect === false }">
-            <span v-for="(ch, i) in (currentWordData?.word || '')" :key="i" class="underscore-char" :class="{
+          <div class="spelling-underscores" :class="{
+            'is-correct': isCorrect === true,
+            'is-incorrect': isCorrect === false,
+          }">
+            <span v-for="(ch, i) in currentWordData?.word || ''" :key="i" class="underscore-char" :class="{
               filled: spellingChars[i],
               'is-correct': isCorrect === true,
-              'is-incorrect': isCorrect === false
-            }">{{ ch === ' ' ? ' ' : (spellingChars[i] || '') }}</span>
+              'is-incorrect': isCorrect === false,
+            }">{{ ch === " " ? " " : spellingChars[i] || "" }}</span>
           </div>
-          <div v-if="isCorrect === true" class="spelling-status correct-status">✓ 拼写正确！</div>
-          <div v-else-if="isCorrect === false" class="spelling-status incorrect-status">✗ 拼写错误，再试一次</div>
+          <div v-if="isCorrect === true" class="spelling-status correct-status">
+            ✓ 拼写正确！
+          </div>
+          <div v-else-if="isCorrect === false" class="spelling-status incorrect-status">
+            ✗ 拼写错误，再试一次
+          </div>
           <input ref="spellingInputRef" type="text" class="spelling-hidden-input" :value="spellingChars.join('')" @keydown="onSpellingKeydown" autocomplete="off" autocapitalize="off" spellcheck="false" />
-          <div v-if="spellingMode && spellingChars" class="action-hint">按 <kbd>Esc</kbd> 退出拼写模式</div>
+          <div v-if="spellingMode && spellingChars" class="action-hint">
+            按 <kbd>Esc</kbd> 退出拼写模式
+          </div>
         </div>
       </template>
     </div>
@@ -296,7 +370,9 @@ onUnmounted(() => {
     </div>
 
     <!-- 操作按钮 -->
-    <div v-if="!spellingMode" class="action-hint">按 <kbd>Enter</kbd> 进入拼写模式</div>
+    <div v-if="!spellingMode" class="action-hint">
+      按 <kbd>Enter</kbd> 进入拼写模式
+    </div>
     <div v-if="!spellingMode" class="action-buttons">
       <button class="action-btn known" @click="handleKnown">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -377,7 +453,9 @@ onUnmounted(() => {
       <div v-else ref="notesContainerRef" class="notes-grid">
         <div v-for="note in notes" :key="note.id" class="note-card">
           <div class="note-content">
-            <p v-for="(line, li) in note.content.split('\n')" :key="li" class="note-line">{{ line }}</p>
+            <p v-for="(line, li) in note.content.split('\n')" :key="li" class="note-line">
+              {{ line }}
+            </p>
           </div>
           <div class="note-footer">
             <span class="note-author" v-if="note.user_info?.nickname">
@@ -391,22 +469,61 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+  </div>
+  <!-- 这里补上了 detail-mode 的闭合标签 -->
 
-    <!-- 下一步按钮 - 固定在右侧 -->
-    <button class="next-btn-fixed" @click="handleNext">
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="9 18 15 12 9 6"></polyline>
-      </svg>
-      {{ currentWordIndex + 1 >= totalWords ? '完成' : '下一个' }}
-      <kbd>Enter</kbd>
-    </button>
+  <!-- ========== 总结界面 ========== -->
+  <div v-else-if="appState === 'summary'" class="summary-screen">
+    <!-- 进度条 -->
+    <div class="progress-bar">
+      <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
+      <span class="progress-text">{{ wordResults.length }} / {{ totalWords }}</span>
+    </div>
+
+    <div class="summary-header">
+      <h2 class="summary-title">小总结</h2>
+      <p class="summary-subtitle">
+        认识了 {{currentBatch.filter((r) => r.known).length}} 个，还需复习
+        {{currentBatch.filter((r) => !r.known).length}} 个
+      </p>
+    </div>
+
+    <div class="summary-list">
+      <div v-for="(result, idx) in currentBatch" :key="idx" class="summary-card" :class="{ known: result.known, unknown: !result.known }" @click="viewWordDetail(result)" role="button" tabindex="0">
+        <div class="summary-card-left">
+          <span class="summary-card-word">{{ result.word.word }}</span>
+          <span class="summary-card-senses">
+            {{
+              result.word.senses
+                ?.map((s) => s.pos + " " + s.definition_cn)
+                .join("；") || ""
+            }}
+          </span>
+        </div>
+        <div class="summary-card-tag">
+          {{ result.known ? "认识" : "不认识" }}
+        </div>
+      </div>
+    </div>
+
+    <div class="summary-actions">
+      <button class="action-btn summary-continue-btn" @click="continueFromSummary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        {{ currentWordIndex + 1 >= totalWords ? "完成学习" : "继续学习" }}
+        <kbd>Enter</kbd>
+      </button>
+    </div>
   </div>
 
   <!-- ========== 完成界面 ========== -->
   <div v-else-if="appState === 'completed'" class="completion-screen">
     <div class="completion-icon">🎉</div>
     <h2>今日单词学习完成！</h2>
-    <p class="completion-stats">你已完成了 <strong>{{ totalWords }}</strong> 个单词的学习</p>
+    <p class="completion-stats">
+      你已完成了 <strong>{{ totalWords }}</strong> 个单词的学习
+    </p>
     <button class="action-btn completion-btn" @click="appState = 'welcome'">
       返回首页 <kbd>Enter</kbd>
     </button>
@@ -414,5 +531,5 @@ onUnmounted(() => {
 </template>
 
 <style>
-@import './style.css';
+@import "./style.css";
 </style>
