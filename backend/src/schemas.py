@@ -1,3 +1,4 @@
+import datetime
 from typing import Generic, Literal, Optional, TypeVar
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
@@ -23,7 +24,7 @@ class SenseItem(BaseModel):
         return v
 
 
-class Material_book(BaseModel):
+class MaterialBook(BaseModel):
     id: str
     description: str
     icon_url: HttpUrl
@@ -48,7 +49,7 @@ class WordItem(BaseModel):
     ipa_us: str
     word: str
     senses: list[SenseItem]
-    updated_at: str
+    updated_at: datetime.datetime
 
 
 class VocabNote(BaseModel):
@@ -72,6 +73,29 @@ class WordTask(BaseModel):
         return self
 
 
+class NewWordKnowledge(BaseModel):
+    failed_count: int
+    item_id: str
+    schedule: int
+
+
+class ReviewWordKnowledge(BaseModel):
+    failed_count: int
+    item_id: str
+    schedule: int
+    updated_at: datetime.datetime
+
+
+class LearningSession(BaseModel):
+    new_words: list[WordItem] = Field(alias="a_items")
+    new_words_known: list[NewWordKnowledge] = Field(alias="a_items_known")
+    review_words: list[WordItem] = Field(alias="c_items")
+    review_words_known: list[ReviewWordKnowledge] = Field(alias="c_items_known")
+    date: datetime.date
+    learning_time: int  # 单位是秒
+
+
+# 以下两个对应的是submit_word(), 也许以后有用, 先保留
 class WordInteraction(BaseModel):
     user_id: dict = {}
     word: str
