@@ -36,9 +36,16 @@
       this.failed_count += 1;
     }
 
-    /** 点"认识" → schedule += 1（上限 3） */
+    /** 点"认识"
+     *  - 第一次就直接认识（failed_count=0）→ 直接 schedule = 3，视为已掌握
+     *  - 之前点过"不认识"的 → 每次 +1，直到 3
+     */
     markKnown() {
-      if (this.schedule < 3) this.schedule += 1;
+      if (this.failed_count === 0 && this.schedule === 0) {
+        this.schedule = 3;
+      } else if (this.schedule < 3) {
+        this.schedule += 1;
+      }
     }
 
     checkSpelling(charArray) {
@@ -71,6 +78,10 @@
   /** 待复习的单词 ID 队列（不认识但还需要继续练） */
   const reviewQueue = ref([]);
 
+  /** Debug 模式：输入 "juna" 进入，显示单词属性 */
+  const debugMode = ref(false);
+  const debugCode = ref("");
+
   const totalWords = computed(() => wordsData.value.length);
 
   const progressPercent = computed(() =>
@@ -87,6 +98,24 @@
     const total = wordResults.value.length;
     const start = Math.max(0, total - 7);
     return wordResults.value.slice(start, total);
+  });
+
+  /** Debug 信息：当前单词的学习状态 */
+  const debugWordInfo = computed(() => {
+    const w = currentWordData.value;
+    if (!w) return null;
+    return {
+      id: w.id,
+      word: w.word,
+      type_of: w.type_of,
+      failed_count: w.failed_count,
+      schedule: w.schedule,
+      isReady: w.isReady,
+      wordIndex: currentWordIndex.value,
+      totalWords: wordsData.value.length,
+      reviewQueueSize: reviewQueue.value.length,
+      resultsCount: wordResults.value.length,
+    };
   });
 
   const audioService = {
@@ -394,6 +423,17 @@
 
   // ====== 键盘路由 ======
   const handleKeyDown = (e) => {
+    // Debug 模式开关：依次按 j u n a 切换
+    if (e.key.length === 1 && /[juna]/.test(e.key)) {
+      debugCode.value += e.key;
+      if (debugCode.value === "juna") {
+        debugMode.value = !debugMode.value;
+        debugCode.value = "";
+      }
+    } else if (debugCode.value) {
+      debugCode.value = "";
+    }
+
     const handlers = {
       welcome: () => {
         if (e.key === "Enter") startLearning();
@@ -431,6 +471,47 @@
   onUnmounted(() => window.removeEventListener("keydown", handleKeyDown));
 </script>
 <template>
+  <!-- ====== Debug 面板（juna 开关） ====== -->
+  <div v-if="debugMode && debugWordInfo" class="debug-panel">
+    <div class="debug-title">🐛 Debug</div>
+    <div class="debug-row">
+      <span class="debug-label">word</span
+      ><span class="debug-val">{{ debugWordInfo.word }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">type</span
+      ><span class="debug-val">{{ debugWordInfo.type_of }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">index</span
+      ><span class="debug-val"
+        >{{ debugWordInfo.wordIndex }} / {{ debugWordInfo.totalWords }}</span
+      >
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">failed_count</span>
+      <span class="debug-val debug-num">{{ debugWordInfo.failed_count }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">schedule</span>
+      <span class="debug-val debug-num">{{ debugWordInfo.schedule }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">isReady</span
+      ><span class="debug-val">{{ debugWordInfo.isReady }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">queue</span
+      ><span class="debug-val"
+        >{{ debugWordInfo.reviewQueueSize }} 个待复习</span
+      >
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">results</span
+      ><span class="debug-val">{{ debugWordInfo.resultsCount }} 次</span>
+    </div>
+  </div>
+
   <Teleport to="body">
     <button
       v-if="appState === 'detail'"
@@ -862,4 +943,50 @@
 
 <style>
   @import "./style.css";
+
+  /* Debug 面板 */
+  .debug-panel {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.85);
+    color: #0f0;
+    font-family: "Cascadia Code", "Fira Code", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #0f0;
+    min-width: 200px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+    user-select: none;
+  }
+  .debug-title {
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+    color: #0f0;
+  }
+  .debug-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .debug-label {
+    color: #8f8;
+  }
+  .debug-val {
+    color: #fff;
+    text-align: right;
+    word-break: break-all;
+  }
+  .debug-num {
+    color: #ff0;
+    font-weight: bold;
+    font-size: 14px;
+  }
 </style>
