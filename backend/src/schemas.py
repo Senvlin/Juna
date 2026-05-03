@@ -1,7 +1,14 @@
 import datetime
 from typing import Generic, Literal, Optional, TypeVar
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    HttpUrl,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 T = TypeVar("T")
 
@@ -76,20 +83,24 @@ class WordTask(BaseModel):
 class NewWordKnowledge(BaseModel):
     failed_count: int
     item_id: str
-    schedule: int
+    schedule: int  # schedule指错误之后要背诵的次数，初始为0，3时为通过，每答对一次就+1
 
 
 class ReviewWordKnowledge(BaseModel):
     failed_count: int
     item_id: str
-    schedule: int
+    schedule: int  # schedule指错误之后要背诵的次数，初始为0，3时为通过，每答对一次就+1
     updated_at: datetime.datetime
+
+    @field_serializer("updated_at")
+    def serialize_updated_at(self, dt: datetime.datetime) -> str:
+        return dt.isoformat(timespec="microseconds")
 
 
 class LearningSession(BaseModel):
-    new_words: list[WordItem] = Field(alias="a_items")
+    new_words: list[NewWordKnowledge] = Field(alias="a_items")
     new_words_known: list[NewWordKnowledge] = Field(alias="a_items_known")
-    review_words: list[WordItem] = Field(alias="c_items")
+    review_words: list[ReviewWordKnowledge] = Field(alias="c_items")
     review_words_known: list[ReviewWordKnowledge] = Field(alias="c_items_known")
     date: datetime.date
     learning_time: int  # 单位是秒
