@@ -21,6 +21,7 @@
   const spellingChars = ref([]);
   const spellingInputRef = ref(null);
   const wordResults = ref([]); // { word: WordItem, known: boolean }[]
+  const learningStartTime = ref(0);
 
   // ====== 计算属性 ======
   const totalWords = computed(() => wordsData.value.length);
@@ -39,10 +40,10 @@
     }));
   });
 
-  // 当前批次（最近8个）的学习结果
+  // 当前批次（最近7个）的学习结果
   const currentBatch = computed(() => {
     const total = wordResults.value.length;
-    const batchSize = 8;
+    const batchSize = 7;
     const start = Math.max(0, total - batchSize);
     return wordResults.value.slice(start, total);
   });
@@ -97,6 +98,7 @@
   // ====== 操作处理 ======
   const startLearning = async () => {
     appState.value = "learning";
+    learningStartTime.value = Date.now();
     await getWordData();
   };
 
@@ -117,12 +119,13 @@
 
   const handleNext = () => {
     const studiedCount = wordResults.value.length;
-    const isBatchBoundary = studiedCount % 8 === 0;
+    const isBatchBoundary = studiedCount % 7 === 0;
     const nextIdx = currentWordIndex.value + 1;
     const hasMoreWords = nextIdx < wordsData.value.length;
 
     if (isBatchBoundary || !hasMoreWords) {
-      // 每完成8个词，或所有词学完时 → 展示总结
+      // 进入总结前先同步到扇贝服务器
+      syncToServer();
       appState.value = "summary";
       return;
     }
@@ -155,6 +158,73 @@
       appState.value = "learning";
     } else {
       appState.value = "completed";
+    }
+  };
+
+  // ====== 与扇贝服务器同步 ======
+  const syncToServer = async () => {
+    // 构建已学结果的查询表: { wordId: true/false }
+    const knownMap = {};
+    for (const r of wordResults.value) {
+      knownMap[r.word.id] = r.known;
+    }
+
+    const a_items = [];
+    const a_items_known = [];
+    const c_items = [];
+    const c_items_known = [];
+
+    for (const word of wordsData.value) {
+      const isNew = word.type_of === "NEW";
+      const studied = word.id in knownMap;
+      const known = studied && knownMap[word.id];
+
+      if (isNew) {
+        if (studied && known) {
+          a_items_known.push({
+            failed_count: 0,
+            item_id: word.id,
+            schedule: 3,
+          });
+        } else {
+          a_items.push({
+            failed_count: studied && !known ? 1 : 0,
+            item_id: word.id,
+            schedule: 0,
+          });
+        }
+      } else {
+        if (studied && known) {
+          c_items_known.push({
+            failed_count: 0,
+            item_id: word.id,
+            schedule: 3,
+            updated_at: word.updated_at,
+          });
+        } else {
+          c_items.push({
+            failed_count: studied && !known ? 1 : 0,
+            item_id: word.id,
+            schedule: 0,
+            updated_at: word.updated_at,
+          });
+        }
+      }
+    }
+
+    const elapsed = Math.floor((Date.now() - learningStartTime.value) / 1000);
+
+    try {
+      await request.post("/word/sync", {
+        a_items,
+        a_items_known,
+        c_items,
+        c_items_known,
+        date: new Date().toISOString().split("T")[0],
+        learning_time: elapsed || 1,
+      });
+    } catch (err) {
+      console.error("同步到扇贝服务器失败:", err);
     }
   };
 
