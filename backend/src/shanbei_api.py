@@ -4,7 +4,13 @@ from typing import Literal
 
 import httpx
 from decode import Decoder
-from schemas import Material_book, VocabNote, WordItem, WordLearningClick
+from schemas import (
+    LearningSession,
+    MaterialBook,
+    VocabNote,
+    WordItem,
+    WordLearningClick,
+)
 
 
 class ShanbayAPI:
@@ -38,9 +44,9 @@ class ShanbayAPI:
                 cookies[key.strip()] = value.strip()
         return cookies
 
-    def _parse_material_book(self, data) -> Material_book:
+    def _parse_material_book(self, data) -> MaterialBook:
         material_book = data["materialbook"]
-        book = Material_book(
+        book = MaterialBook(
             id=data.get("materialbook_id"),
             description=material_book.get("description"),
             icon_url=material_book.get("icon_url"),
@@ -52,7 +58,7 @@ class ShanbayAPI:
         )
         return book
 
-    async def get_default_material_book(self) -> Material_book | None:
+    async def get_default_material_book(self) -> MaterialBook | None:
         """
         获取用户当前学习的教材
         """
@@ -124,7 +130,7 @@ class ShanbayAPI:
 
     async def get_words_all(
         self,
-        material_book: Material_book,
+        material_book: MaterialBook,
         words_type: Literal["NEW", "REVIEW"],
     ) -> list[WordItem]:
         """
@@ -167,22 +173,24 @@ class ShanbayAPI:
             return []
         return [VocabNote(**note) for note in vocab_notes]
 
-    # TODO:等前端适配的时候再用这个
+    # Deprecated: 发现与服务器同步不用这个也可以, 直接调用sync接口就行了, 这个接口是扇贝在用户点击单词时调用的, 可能会有一些额外的逻辑, 但目前不清楚是什么, 先保留代码以备后续研究
     async def submit_word(self, learning_click_item: WordLearningClick):
         url = "/lune/mlog"
         resp = await self.client.post(url, json=learning_click_item.model_dump())
 
         resp.raise_for_status()
 
-    # TODO: 同上
-    # async def sync_word(self, new_words: Iterable[WordItem], review_words: Iterable[WordItem]):
-    #     """
-    #     与服务器同步单词完成情况
-    #     """
-    #     url = "/wordsapp/user_material_books/bqydkq/learning/items/sync"
-    #     a = self.test_(new_words, review_words)
-    #     req = await self.client.put(url, json=a)
-    #     req.raise_for_status()
+    async def sync_word(
+        self,
+        learning_session: LearningSession,
+        material_book: MaterialBook,
+    ):
+        """
+        与服务器同步单词完成情况
+        """
+        url = f"/wordsapp/user_material_books/{material_book.id}/learning/items/sync"
+        req = await self.client.put(url, json=learning_session.model_dump())
+        req.raise_for_status()
 
     # def test_(self, new_words: Iterable[WordItem], review_words: Iterable[WordItem]):
     #     a_items_known = [
