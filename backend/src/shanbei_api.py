@@ -189,30 +189,10 @@ class ShanbayAPI:
         与服务器同步单词完成情况
         """
         url = f"/wordsapp/user_material_books/{material_book.id}/learning/items/sync"
-        req = await self.client.put(url, json=learning_session.model_dump())
+        payload = learning_session.model_dump(mode="json", by_alias=True)
+        req = await self.client.put(url, json=payload)
         req.raise_for_status()
 
-    # def test_(self, new_words: Iterable[WordItem], review_words: Iterable[WordItem]):
-    #     a_items_known = [
-    #         {"failed_count": 0, "item_id": i.id, "schedule": 0} for i in new_words
-    #     ]
-    #     c_items_known = [
-    #         {
-    #             "failed_count": 0,
-    #             "item_id": i.id,
-    #             "schedule": 3, #schedule指错误之后要背诵的次数 3时为通过，每答对一次就+1
-    #             "updated_at": i.updated_at,
-    #         }
-    #         for i in review_words
-    #     ]
-    #     return {
-    #         "a_items": [],
-    #         "a_items_known": a_items_known,
-    #         "c_items": [],
-    #         "c_items_known": c_items_known,
-    #         "date": "2026-04-13",
-    #         "learning_time": 145,
-    #     }
     async def close(self):
         """
         关闭客户端连接
