@@ -2,6 +2,8 @@
   import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
   import request from "./utils/request";
 
+  // ========== 数据结构 ==========
+
   class Word {
     constructor(data) {
       this.id = data.id;
@@ -13,7 +15,6 @@
       this.type_of = data.type_of;
       this.updated_at = data.updated_at;
       this.senses = data.senses || [];
-      // 学习状态（新单词初始为 0）
       this.failed_count = 0;
       this.schedule = 0;
     }
@@ -26,19 +27,20 @@
       return this.word.length;
     }
 
-    /** schedule >= 3 即为已掌握，放入 sync 的 known 列表 */
     get isReady() {
       return this.schedule >= 3;
     }
 
-    /** 点"不认识" → failed_count += 1 */
     markUnknown() {
       this.failed_count += 1;
     }
 
-    /** 点"认识" → schedule += 1（上限 3） */
     markKnown() {
-      if (this.schedule < 3) this.schedule += 1;
+      if (this.failed_count === 0 && this.schedule === 0) {
+        this.schedule = 3; // 从未失败的新词直接掌握
+      } else if (this.schedule < 3) {
+        this.schedule += 1;
+      }
     }
 
     checkSpelling(charArray) {
@@ -49,13 +51,15 @@
     }
   }
 
-  const appState = ref("welcome"); // 'welcome' | 'learning' | 'detail' | 'summary' | 'completed'
+  // ========== 所有状态 ==========
+
+  const appState = ref("welcome");
   const userInput = ref("");
   const isCorrect = ref(null);
   const spellingMode = ref(false);
   const currentWordData = ref(null);
-  const currentWordIndex = ref(0);
-  const wordsData = ref([]);
+  const currentWordIndex = ref(0); // 当前在学习序列中的位置（0-based）
+  const wordsData = ref([]); // 原始全部单词，只在此初始化，后面不再插入
   const notes = ref([]);
   const notesLoading = ref(false);
   const hasMoreNotes = ref(true);
@@ -65,22 +69,27 @@
   const notesContainerRef = ref(null);
   const spellingChars = ref([]);
   const spellingInputRef = ref(null);
-  const wordResults = ref([]); // { word, known }[]
+  const wordResults = ref([]); // { word: Word, known: boolean }[]
   const learningStartTime = ref(0);
+  const debugMode = ref(false);
+  const debugCode = ref("");
 
-  /** 待复习的单词 ID 队列（不认识但还需要继续练） */
+  /** 复习队列：存放未掌握的单词 id */
   const reviewQueue = ref([]);
 
-  const totalWords = computed(() => wordsData.value.length);
+  /** 学习序列总长：初始为原始词数，每插入一个复习词就 +1，保证进度条平滑 */
+  const totalLearningCount = ref(0);
 
-  const progressPercent = computed(() =>
-    totalWords.value > 0
-      ? Math.round((currentWordIndex.value / totalWords.value) * 100)
-      : 0,
-  );
+  // ========== 3. 纯计算属性 ==========
 
   const groupedSenses = computed(
     () => currentWordData.value?.groupedSenses ?? [],
+  );
+
+  const progressPercent = computed(() =>
+    totalLearningCount.value > 0
+      ? Math.round((currentWordIndex.value / totalLearningCount.value) * 100)
+      : 0,
   );
 
   const currentBatch = computed(() => {
@@ -88,6 +97,25 @@
     const start = Math.max(0, total - 7);
     return wordResults.value.slice(start, total);
   });
+
+  const debugWordInfo = computed(() => {
+    const w = currentWordData.value;
+    if (!w) return null;
+    return {
+      id: w.id,
+      word: w.word,
+      type_of: w.type_of,
+      failed_count: w.failed_count,
+      schedule: w.schedule,
+      isReady: w.isReady,
+      wordIndex: currentWordIndex.value,
+      totalInSequence: totalLearningCount.value,
+      reviewQueueSize: reviewQueue.value.length,
+      resultsCount: wordResults.value.length,
+    };
+  });
+
+  // ========== 4. 无副作用工具函数 ==========
 
   const audioService = {
     play(refEl) {
@@ -115,59 +143,43 @@
     },
   };
 
-  const syncService = {
-    buildPayload(words, startTime) {
-      const buckets = {
-        a_items: [],
-        a_items_known: [],
-        c_items: [],
-        c_items_known: [],
-      };
+  function buildSyncPayload(words, startTime) {
+    const buckets = {
+      a_items: [],
+      a_items_known: [],
+      c_items: [],
+      c_items_known: [],
+    };
 
-      for (const word of words) {
-        const { failed_count, schedule, isReady, type_of, updated_at } = word;
-        const isNew = type_of === "NEW";
-
-        if (isNew) {
-          if (isReady) {
-            buckets.a_items_known.push({
-              failed_count: 0,
-              item_id: word.id,
-              schedule: 3,
-            });
-          } else {
-            buckets.a_items.push({
-              failed_count,
-              item_id: word.id,
-              schedule,
-            });
-          }
+    for (const word of words) {
+      const { id, failed_count, schedule, isReady, type_of, updated_at } = word;
+      if (type_of === "NEW") {
+        if (isReady) {
+          buckets.a_items_known.push({
+            failed_count: 0,
+            item_id: id,
+            schedule: 3,
+          });
         } else {
-          const base = { item_id: word.id, updated_at };
-          if (isReady) {
-            buckets.c_items_known.push({
-              ...base,
-              failed_count: 0,
-              schedule: 3,
-            });
-          } else {
-            buckets.c_items.push({
-              ...base,
-              failed_count,
-              schedule,
-            });
-          }
+          buckets.a_items.push({ failed_count, item_id: id, schedule });
+        }
+      } else {
+        const base = { item_id: id, updated_at };
+        if (isReady) {
+          buckets.c_items_known.push({ ...base, failed_count: 0, schedule: 3 });
+        } else {
+          buckets.c_items.push({ ...base, failed_count, schedule });
         }
       }
+    }
 
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      return {
-        ...buckets,
-        date: new Date().toISOString().split("T")[0],
-        learning_time: elapsed || 1,
-      };
-    },
-  };
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    return {
+      ...buckets,
+      date: new Date().toISOString().split("T")[0],
+      learning_time: elapsed || 1,
+    };
+  }
 
   const spellingService = {
     handleKey(e, charArray, wordLen) {
@@ -195,53 +207,80 @@
     },
   };
 
-  const sessionService = {
-    resetWordState() {
-      spellingMode.value = false;
-      isCorrect.value = null;
-      userInput.value = "";
-      spellingChars.value = [];
-      notes.value = [];
-      hasMoreNotes.value = true;
-    },
+  /**
+   * 纯函数：根据队列和原始单词表，返回下一个要学习的词（或 null）
+   * 规则：批次边界（每 7 个）且队列非空时优先队列；否则返回 words[nextRawIndex]
+   */
+  function getNextWord(words, rawIndex, queue, learnedCount) {
+    // 如果处于批次边界（已学 7 的倍数），且有未掌握的复习词
+    if (learnedCount > 0 && learnedCount % 7 === 0 && queue.length > 0) {
+      const id = queue[0]; // 看一眼，不在这里 shift
+      const found = words.find((w) => w.id === id);
+      if (found) return { word: found, type: "review" };
+    }
+    // 正常取下一个原始词
+    if (rawIndex < words.length) {
+      return { word: words[rawIndex], type: "new" };
+    }
+    // 原始词用完了，但还有队列
+    if (queue.length > 0) {
+      const id = queue[0];
+      const found = words.find((w) => w.id === id);
+      if (found) return { word: found, type: "review" };
+    }
+    return null;
+  }
 
-    advanceTo(index) {
-      currentWordIndex.value = index;
-      currentWordData.value = wordsData.value[index];
-      progress.value = index;
-      this.resetWordState();
-      appState.value = "learning";
-    },
+  // ========== 5. 会话管理（副作用只集中在这里） ==========
 
-    recordResult(known) {
-      const word = currentWordData.value;
-      wordResults.value.push({ word, known });
-
-      if (known) {
-        word.markKnown();
-      } else {
-        word.markUnknown();
-      }
-
-      // 只要还没掌握（schedule < 3），就持续进入复习队列
-      if (!word.isReady && !reviewQueue.value.includes(word.id)) {
-        reviewQueue.value.push(word.id);
-      }
-
-      appState.value = "detail";
-    },
+  const resetWordUI = () => {
+    spellingMode.value = false;
+    isCorrect.value = null;
+    userInput.value = "";
+    spellingChars.value = [];
+    notes.value = [];
+    hasMoreNotes.value = true;
   };
 
-  const playAudio = (type) => {
-    audioService.play(type === "uk" ? ukAudioRef : usAudioRef);
+  /** 设定当前展示的词，并更新索引与总数 */
+  const setCurrentWord = (word) => {
+    currentWordData.value = word;
   };
+
+  const advanceToWord = (word, index) => {
+    currentWordIndex.value = index;
+    setCurrentWord(word);
+    resetWordUI();
+    appState.value = "learning";
+  };
+
+  const recordResult = (known) => {
+    const word = currentWordData.value;
+    wordResults.value.push({ word, known });
+
+    if (known) {
+      word.markKnown();
+    } else {
+      word.markUnknown();
+    }
+
+    // 未掌握且未在队列中才加入（避免重复）
+    if (!word.isReady && !reviewQueue.value.includes(word.id)) {
+      reviewQueue.value.push(word.id);
+    }
+
+    appState.value = "detail";
+  };
+
+  // ========== 6. 业务流程 ==========
 
   const getWordData = async () => {
     try {
-      const wordList = await apiService.fetchWords();
-      if (!wordList?.length) return;
-      wordsData.value = wordList;
-      currentWordData.value = wordList[0];
+      const list = await apiService.fetchWords();
+      if (!list?.length) return;
+      wordsData.value = list;
+      totalLearningCount.value = list.length;
+      currentWordData.value = list[0];
       currentWordIndex.value = 0;
       progress.value = 0;
     } catch (err) {
@@ -254,9 +293,9 @@
       return;
     notesLoading.value = true;
     try {
-      const list = await apiService.fetchNotes(currentWordData.value);
-      notes.value = list;
-      hasMoreNotes.value = list.length >= 15;
+      const data = await apiService.fetchNotes(currentWordData.value);
+      notes.value = data;
+      hasMoreNotes.value = data.length >= 15;
     } catch (err) {
       console.error("获取笔记失败:", err);
       notes.value = [];
@@ -269,65 +308,76 @@
     appState.value = "learning";
     learningStartTime.value = Date.now();
     reviewQueue.value = [];
+    wordResults.value = [];
     await getWordData();
   };
 
   const handleKnown = async () => {
-    sessionService.recordResult(true);
+    recordResult(true);
     await fetchNotes();
   };
 
   const handleUnknown = async () => {
-    sessionService.recordResult(false);
+    recordResult(false);
     await fetchNotes();
   };
 
   const handleNext = () => {
     const studiedCount = wordResults.value.length;
-    const isBatchBoundary = studiedCount > 0 && studiedCount % 7 === 0;
-    const nextIdx = currentWordIndex.value + 1;
-    let hasMore = nextIdx < wordsData.value.length;
+    const rawIdx = currentWordIndex.value; // 当前在整个序列里的位置（用作原始词索引的基准）
 
-    // 每学完 7 个词，插入一个待复习的单词
-    if (isBatchBoundary && reviewQueue.value.length > 0) {
-      const reviewId = reviewQueue.value.shift();
-      const reviewWord = wordsData.value.find((w) => w.id === reviewId);
-      if (reviewWord) {
-        wordsData.value.splice(nextIdx, 0, reviewWord);
-        hasMore = true;
-      }
-    }
+    // 先尝试获取下一个要学的词（纯计算）
+    const next = getNextWord(
+      wordsData.value,
+      rawIdx + 1, // 下个原始词的索引，简单起见用递增，后面再修正
+      reviewQueue.value,
+      studiedCount,
+    );
 
-    // 到末尾了但还有复习词 → 插到末尾继续学
-    if (!hasMore && reviewQueue.value.length > 0) {
-      const reviewId = reviewQueue.value.shift();
-      const reviewWord = wordsData.value.find((w) => w.id === reviewId);
-      if (reviewWord) {
-        wordsData.value.push(reviewWord);
-        hasMore = true;
-      }
-    }
-
-    // 每 7 个词或已无剩余词 → 同步 + 总结
-    if ((studiedCount > 0 && studiedCount % 7 === 0) || !hasMore) {
-      const payload = syncService.buildPayload(
+    if (!next) {
+      // 没有更多词了 —— 同步并进入总结
+      const payload = buildSyncPayload(
         wordsData.value,
         learningStartTime.value,
       );
-      apiService
-        .sync(payload)
-        .catch((err) => console.error("同步到扇贝服务器失败:", err));
+      apiService.sync(payload).catch((err) => console.error("同步失败:", err));
       appState.value = "summary";
       return;
     }
 
-    sessionService.advanceTo(nextIdx);
+    // 如果是复习词，得从队列里正式移除
+    if (next.type === "review") {
+      reviewQueue.value.shift();
+      totalLearningCount.value += 1; // 插入复习词，总数 +1
+    }
+
+    // 前进到该词
+    const newIndex = currentWordIndex.value + 1;
+    currentWordIndex.value = newIndex;
+    setCurrentWord(next.word);
+    resetWordUI();
+    appState.value = "learning";
+
+    // 如果批次边界还有复习词，或者原始词用完但队列还有，handleNext 的下次调用会继续处理
+    // 当前这一步只进一个词，后续的压力在下次回车
   };
 
   const continueFromSummary = () => {
     const nextIdx = currentWordIndex.value + 1;
-    if (nextIdx < wordsData.value.length) {
-      sessionService.advanceTo(nextIdx);
+    // 重新用 getNextWord 找个方向，但此时状态和 handleNext 第一次判断类似
+    // 简单处理：如果 nextIdx 还没超出 totalLearningCount，继续
+    const next = getNextWord(
+      wordsData.value,
+      nextIdx,
+      reviewQueue.value,
+      wordResults.value.length,
+    );
+    if (next) {
+      if (next.type === "review") {
+        reviewQueue.value.shift();
+        totalLearningCount.value += 1;
+      }
+      advanceToWord(next.word, nextIdx);
     } else {
       appState.value = "completed";
     }
