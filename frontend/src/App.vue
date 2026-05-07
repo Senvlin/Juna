@@ -1,8 +1,61 @@
 <script setup>
-  import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
+  import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
   import request from "./utils/request";
 
-  // ====== 状态 ======
+  class Word {
+    constructor(data) {
+      this.id = data.id;
+      this.word = data.word;
+      this.ipa_uk = data.ipa_uk;
+      this.ipa_us = data.ipa_us;
+      this.audio_uk_url = data.audio_uk_url;
+      this.audio_us_url = data.audio_us_url;
+      this.type_of = data.type_of;
+      this.updated_at = data.updated_at;
+      this.senses = data.senses || [];
+      // 学习状态（新单词初始为 0）
+      this.failed_count = 0;
+      this.schedule = 0;
+    }
+
+    get groupedSenses() {
+      return this.senses.map((s, i) => ({ ...s, index: i + 1 }));
+    }
+
+    get length() {
+      return this.word.length;
+    }
+
+    /** schedule >= 3 即为已掌握，放入 sync 的 known 列表 */
+    get isReady() {
+      return this.schedule >= 3;
+    }
+
+    /** 点"不认识" → failed_count += 1 */
+    markUnknown() {
+      this.failed_count += 1;
+    }
+
+    /** 点"认识"
+     *  - 第一次就直接认识（failed_count=0）→ 直接 schedule = 3，视为已掌握
+     *  - 之前点过"不认识"的 → 每次 +1，直到 3
+     */
+    markKnown() {
+      if (this.failed_count === 0 && this.schedule === 0) {
+        this.schedule = 3;
+      } else if (this.schedule < 3) {
+        this.schedule += 1;
+      }
+    }
+
+    checkSpelling(charArray) {
+      if (!charArray?.length) return { isCorrect: null };
+      const typed = charArray.join("").toLowerCase().trim();
+      if (!typed) return { isCorrect: null };
+      return { isCorrect: typed === this.word.toLowerCase() };
+    }
+  }
+
   const appState = ref("welcome"); // 'welcome' | 'learning' | 'detail' | 'summary' | 'completed'
   const userInput = ref("");
   const isCorrect = ref(null);
@@ -14,79 +67,225 @@
   const notesLoading = ref(false);
   const hasMoreNotes = ref(true);
   const progress = ref(0);
-
   const ukAudioRef = ref(null);
   const usAudioRef = ref(null);
   const notesContainerRef = ref(null);
   const spellingChars = ref([]);
   const spellingInputRef = ref(null);
-  const wordResults = ref([]); // { word: WordItem, known: boolean }[]
+  const wordResults = ref([]); // { word, known }[]
   const learningStartTime = ref(0);
 
-  // ====== 计算属性 ======
+  /** 待复习的单词 ID 队列（不认识但还需要继续练） */
+  const reviewQueue = ref([]);
+
+  /** Debug 模式：输入 "juna" 进入，显示单词属性 */
+  const debugMode = ref(false);
+  const debugCode = ref("");
+
   const totalWords = computed(() => wordsData.value.length);
+
   const progressPercent = computed(() =>
     totalWords.value > 0
       ? Math.round((currentWordIndex.value / totalWords.value) * 100)
       : 0,
   );
 
-  // senses 按词性分组展示
-  const groupedSenses = computed(() => {
-    if (!currentWordData.value?.senses) return [];
-    return currentWordData.value.senses.map((s, i) => ({
-      ...s,
-      index: i + 1,
-    }));
-  });
+  const groupedSenses = computed(
+    () => currentWordData.value?.groupedSenses ?? [],
+  );
 
-  // 当前批次（最近7个）的学习结果
   const currentBatch = computed(() => {
     const total = wordResults.value.length;
-    const batchSize = 7;
-    const start = Math.max(0, total - batchSize);
+    const start = Math.max(0, total - 7);
     return wordResults.value.slice(start, total);
   });
 
-  // ====== 音频播放 ======
-  const playAudio = (type) => {
-    const ref = type === "uk" ? ukAudioRef : usAudioRef;
-    if (ref.value) {
-      ref.value.currentTime = 0;
-      ref.value.play().catch((e) => console.log(e));
-    }
+  /** Debug 信息：当前单词的学习状态 */
+  const debugWordInfo = computed(() => {
+    const w = currentWordData.value;
+    if (!w) return null;
+    return {
+      id: w.id,
+      word: w.word,
+      type_of: w.type_of,
+      failed_count: w.failed_count,
+      schedule: w.schedule,
+      isReady: w.isReady,
+      wordIndex: currentWordIndex.value,
+      totalWords: wordsData.value.length,
+      reviewQueueSize: reviewQueue.value.length,
+      resultsCount: wordResults.value.length,
+    };
+  });
+
+  const audioService = {
+    play(refEl) {
+      if (!refEl?.value) return;
+      refEl.value.currentTime = 0;
+      refEl.value.play().catch(() => {});
+    },
   };
 
-  // ====== 单词数据获取 ======
+  const apiService = {
+    async fetchWords() {
+      const [newResp, reviewResp] = await Promise.all([
+        request.get("/word/new"),
+        request.get("/word/review"),
+      ]);
+      const rawList = [...(reviewResp.data || []), ...(newResp.data || [])];
+      return rawList.map((raw) => new Word(raw));
+    },
+    async fetchNotes(wordData) {
+      const resp = await request.post("/word/note/", wordData);
+      return resp.data || [];
+    },
+    async sync(payload) {
+      await request.post("/word/sync", payload);
+    },
+  };
+
+  const syncService = {
+    buildPayload(words, startTime) {
+      const buckets = {
+        a_items: [],
+        a_items_known: [],
+        c_items: [],
+        c_items_known: [],
+      };
+
+      for (const word of words) {
+        const { failed_count, schedule, isReady, type_of, updated_at } = word;
+        const isNew = type_of === "NEW";
+
+        if (isNew) {
+          if (isReady) {
+            buckets.a_items_known.push({
+              failed_count: 0,
+              item_id: word.id,
+              schedule: 3,
+            });
+          } else {
+            buckets.a_items.push({
+              failed_count,
+              item_id: word.id,
+              schedule,
+            });
+          }
+        } else {
+          const base = { item_id: word.id, updated_at };
+          if (isReady) {
+            buckets.c_items_known.push({
+              ...base,
+              failed_count: 0,
+              schedule: 3,
+            });
+          } else {
+            buckets.c_items.push({
+              ...base,
+              failed_count,
+              schedule,
+            });
+          }
+        }
+      }
+
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      return {
+        ...buckets,
+        date: new Date().toISOString().split("T")[0],
+        learning_time: elapsed || 1,
+      };
+    },
+  };
+
+  const spellingService = {
+    handleKey(e, charArray, wordLen) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        return { action: "check", chars: charArray };
+      }
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        return { action: "update", chars: charArray.slice(0, -1) };
+      }
+      if (
+        e.key.length === 1 &&
+        /[a-zA-Z]/.test(e.key) &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        if (charArray.length < wordLen) {
+          return { action: "update", chars: [...charArray, e.key] };
+        }
+      }
+      return { action: "none", chars: charArray };
+    },
+  };
+
+  const sessionService = {
+    resetWordState() {
+      spellingMode.value = false;
+      isCorrect.value = null;
+      userInput.value = "";
+      spellingChars.value = [];
+      notes.value = [];
+      hasMoreNotes.value = true;
+    },
+
+    advanceTo(index) {
+      currentWordIndex.value = index;
+      currentWordData.value = wordsData.value[index];
+      progress.value = index;
+      this.resetWordState();
+      appState.value = "learning";
+    },
+
+    recordResult(known) {
+      const word = currentWordData.value;
+      wordResults.value.push({ word, known });
+
+      if (known) {
+        word.markKnown();
+      } else {
+        word.markUnknown();
+      }
+
+      // 只要还没掌握（schedule < 3），就持续进入复习队列
+      if (!word.isReady && !reviewQueue.value.includes(word.id)) {
+        reviewQueue.value.push(word.id);
+      }
+
+      appState.value = "detail";
+    },
+  };
+
+  const playAudio = (type) => {
+    audioService.play(type === "uk" ? ukAudioRef : usAudioRef);
+  };
+
   const getWordData = async () => {
     try {
-      const newResp = await request.get("/word/new");
-      const reviewResp = await request.get("/word/review");
-      const newWords = newResp.data || [];
-      const reviewWords = reviewResp.data || [];
-      const wordList = [...reviewWords, ...newWords]; // 先学习新词，后复习旧词
-      const wordItems = wordList;
-      if (wordItems && wordItems.length > 0) {
-        wordsData.value = wordItems;
-        currentWordData.value = wordItems[0];
-        currentWordIndex.value = 0;
-        progress.value = 0;
-      }
+      const wordList = await apiService.fetchWords();
+      if (!wordList?.length) return;
+      wordsData.value = wordList;
+      currentWordData.value = wordList[0];
+      currentWordIndex.value = 0;
+      progress.value = 0;
     } catch (err) {
       console.error("获取单词失败:", err);
     }
   };
 
-  // ====== 笔记获取 ======
   const fetchNotes = async () => {
     if (!currentWordData.value || notesLoading.value || !hasMoreNotes.value)
       return;
     notesLoading.value = true;
     try {
-      const resp = await request.post("/word/note/", currentWordData.value);
-      const noteList = resp.data || [];
-      notes.value = noteList;
-      hasMoreNotes.value = noteList.length >= 15;
+      const list = await apiService.fetchNotes(currentWordData.value);
+      notes.value = list;
+      hasMoreNotes.value = list.length >= 15;
     } catch (err) {
       console.error("获取笔记失败:", err);
       notes.value = [];
@@ -95,136 +294,71 @@
     }
   };
 
-  // ====== 操作处理 ======
   const startLearning = async () => {
     appState.value = "learning";
     learningStartTime.value = Date.now();
+    reviewQueue.value = [];
     await getWordData();
   };
 
   const handleKnown = async () => {
-    wordResults.value.push({ word: { ...currentWordData.value }, known: true });
-    appState.value = "detail";
+    sessionService.recordResult(true);
     await fetchNotes();
   };
 
   const handleUnknown = async () => {
-    wordResults.value.push({
-      word: { ...currentWordData.value },
-      known: false,
-    });
-    appState.value = "detail";
+    sessionService.recordResult(false);
     await fetchNotes();
   };
 
   const handleNext = () => {
     const studiedCount = wordResults.value.length;
-    const isBatchBoundary = studiedCount % 7 === 0;
+    const isBatchBoundary = studiedCount > 0 && studiedCount % 7 === 0;
     const nextIdx = currentWordIndex.value + 1;
-    const hasMoreWords = nextIdx < wordsData.value.length;
+    let hasMore = nextIdx < wordsData.value.length;
 
-    if (isBatchBoundary || !hasMoreWords) {
-      // 进入总结前先同步到扇贝服务器
-      syncToServer();
+    // 每学完 7 个词，插入一个待复习的单词
+    if (isBatchBoundary && reviewQueue.value.length > 0) {
+      const reviewId = reviewQueue.value.shift();
+      const reviewWord = wordsData.value.find((w) => w.id === reviewId);
+      if (reviewWord) {
+        wordsData.value.splice(nextIdx, 0, reviewWord);
+        hasMore = true;
+      }
+    }
+
+    // 到末尾了但还有复习词 → 插到末尾继续学
+    if (!hasMore && reviewQueue.value.length > 0) {
+      const reviewId = reviewQueue.value.shift();
+      const reviewWord = wordsData.value.find((w) => w.id === reviewId);
+      if (reviewWord) {
+        wordsData.value.push(reviewWord);
+        hasMore = true;
+      }
+    }
+
+    // 每 7 个词或已无剩余词 → 同步 + 总结
+    if ((studiedCount > 0 && studiedCount % 7 === 0) || !hasMore) {
+      const payload = syncService.buildPayload(
+        wordsData.value,
+        learningStartTime.value,
+      );
+      apiService
+        .sync(payload)
+        .catch((err) => console.error("同步到扇贝服务器失败:", err));
       appState.value = "summary";
       return;
     }
 
-    currentWordIndex.value = nextIdx;
-    currentWordData.value = wordsData.value[nextIdx];
-    progress.value = nextIdx;
-    spellingMode.value = false;
-    isCorrect.value = null;
-    userInput.value = "";
-    spellingChars.value = [];
-    notes.value = [];
-    hasMoreNotes.value = true;
-    appState.value = "learning";
+    sessionService.advanceTo(nextIdx);
   };
 
-  // ====== 总结界面操作 ======
   const continueFromSummary = () => {
     const nextIdx = currentWordIndex.value + 1;
     if (nextIdx < wordsData.value.length) {
-      currentWordIndex.value = nextIdx;
-      currentWordData.value = wordsData.value[nextIdx];
-      progress.value = nextIdx;
-      spellingMode.value = false;
-      isCorrect.value = null;
-      userInput.value = "";
-      spellingChars.value = [];
-      notes.value = [];
-      hasMoreNotes.value = true;
-      appState.value = "learning";
+      sessionService.advanceTo(nextIdx);
     } else {
       appState.value = "completed";
-    }
-  };
-
-  // ====== 与扇贝服务器同步 ======
-  const syncToServer = async () => {
-    // 构建已学结果的查询表: { wordId: true/false }
-    const knownMap = {};
-    for (const r of wordResults.value) {
-      knownMap[r.word.id] = r.known;
-    }
-
-    const a_items = [];
-    const a_items_known = [];
-    const c_items = [];
-    const c_items_known = [];
-
-    for (const word of wordsData.value) {
-      const isNew = word.type_of === "NEW";
-      const studied = word.id in knownMap;
-      const known = studied && knownMap[word.id];
-
-      if (isNew) {
-        if (studied && known) {
-          a_items_known.push({
-            failed_count: 0,
-            item_id: word.id,
-            schedule: 3,
-          });
-        } else {
-          a_items.push({
-            failed_count: studied && !known ? 1 : 0,
-            item_id: word.id,
-            schedule: 0,
-          });
-        }
-      } else {
-        if (studied && known) {
-          c_items_known.push({
-            failed_count: 0,
-            item_id: word.id,
-            schedule: 3,
-            updated_at: word.updated_at,
-          });
-        } else {
-          c_items.push({
-            failed_count: studied && !known ? 1 : 0,
-            item_id: word.id,
-            schedule: 0,
-            updated_at: word.updated_at,
-          });
-        }
-      }
-    }
-
-    const elapsed = Math.floor((Date.now() - learningStartTime.value) / 1000);
-
-    try {
-      await request.post("/word/sync", {
-        a_items,
-        a_items_known,
-        c_items,
-        c_items_known,
-        date: new Date().toISOString().split("T")[0],
-        learning_time: elapsed || 1,
-      });
-    } catch (err) {
-      console.error("同步到扇贝服务器失败:", err);
     }
   };
 
@@ -236,22 +370,29 @@
     await fetchNotes();
   };
 
+  // ====== 拼写相关方法 ======
   const checkSpelling = () => {
-    if (!currentWordData.value) return;
-    const typed = spellingChars.value.join("").toLowerCase();
-    if (!typed) return;
-    if (typed === currentWordData.value.word.toLowerCase()) {
-      isCorrect.value = true;
+    const word = currentWordData.value;
+    const result = word?.checkSpelling(spellingChars.value) ?? {
+      isCorrect: null,
+    };
+    isCorrect.value = result.isCorrect;
+
+    const resetAfter = (ms) =>
       setTimeout(() => {
         spellingMode.value = false;
         isCorrect.value = null;
         spellingChars.value = [];
         userInput.value = "";
-      }, 1200);
-    } else {
-      isCorrect.value = false;
+      }, ms);
+
+    if (result.isCorrect === true) {
+      resetAfter(1200);
+    } else if (result.isCorrect === false) {
       setTimeout(() => {
-        if (spellingChars.value.length >= currentWordData.value.word.length) {
+        if (
+          spellingChars.value.length >= (currentWordData.value?.length ?? 0)
+        ) {
           isCorrect.value = null;
           spellingChars.value = [];
           userInput.value = "";
@@ -261,100 +402,116 @@
   };
 
   const onSpellingKeydown = (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      checkSpelling();
-      return;
-    }
-    if (e.key === "Backspace") {
-      e.preventDefault();
+    const word = currentWordData.value;
+    const wordLen = word?.length ?? 0;
+    const { action, chars } = spellingService.handleKey(
+      e,
+      spellingChars.value,
+      wordLen,
+    );
+
+    if (action === "update") {
       isCorrect.value = null;
-      spellingChars.value = spellingChars.value.slice(0, -1);
-      return;
-    }
-    if (
-      e.key.length === 1 &&
-      /[a-zA-Z]/.test(e.key) &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      !e.altKey
-    ) {
-      e.preventDefault();
-      if (
-        spellingChars.value.length < (currentWordData.value?.word?.length || 0)
-      ) {
-        isCorrect.value = null;
-        spellingChars.value = [...spellingChars.value, e.key];
-        // 自动检查：填满所有字母时
-        if (spellingChars.value.length === currentWordData.value.word.length) {
-          checkSpelling();
-        }
+      spellingChars.value = chars;
+      if (chars.length === word.length) {
+        checkSpelling();
       }
+    } else if (action === "check") {
+      checkSpelling();
     }
   };
 
-  // ====== 键盘事件 ======
+  // ====== 键盘路由 ======
   const handleKeyDown = (e) => {
-    // 欢迎界面：回车开始
-    if (appState.value === "welcome" && e.key === "Enter") {
-      startLearning();
-      return;
+    // Debug 模式开关：依次按 j u n a 切换
+    if (e.key.length === 1 && /[juna]/.test(e.key)) {
+      debugCode.value += e.key;
+      if (debugCode.value === "juna") {
+        debugMode.value = !debugMode.value;
+        debugCode.value = "";
+      }
+    } else if (debugCode.value) {
+      debugCode.value = "";
     }
 
-    // 学习界面
-    if (appState.value === "learning") {
-      if (e.key === "1") {
-        handleKnown();
-      } else if (e.key === "2") {
-        handleUnknown();
-      } else if (e.key === "Enter") {
-        if (!spellingMode.value) {
+    const handlers = {
+      welcome: () => {
+        if (e.key === "Enter") startLearning();
+      },
+      learning: () => {
+        if (e.key === "1") handleKnown();
+        else if (e.key === "2") handleUnknown();
+        else if (e.key === "Enter" && !spellingMode.value) {
           spellingMode.value = true;
           spellingChars.value = [];
           isCorrect.value = null;
-          nextTick(() => {
-            spellingInputRef.value?.focus();
-          });
+          nextTick(() => spellingInputRef.value?.focus());
+        } else if (e.key === "Escape" && spellingMode.value) {
+          e.preventDefault();
+          spellingMode.value = false;
+          isCorrect.value = null;
+          spellingChars.value = [];
+          userInput.value = "";
         }
-      } else if (spellingMode.value && e.key === "Escape") {
-        e.preventDefault();
-        spellingMode.value = false;
-        isCorrect.value = null;
-        spellingChars.value = [];
-        userInput.value = "";
-      }
-      return;
-    }
-
-    // 详情界面：回车下一个
-    if (appState.value === "detail" && e.key === "Enter") {
-      handleNext();
-      return;
-    }
-
-    // 总结界面：回车继续
-    if (appState.value === "summary" && e.key === "Enter") {
-      continueFromSummary();
-      return;
-    }
-
-    // 完成界面：回车返回
-    if (appState.value === "completed" && e.key === "Enter") {
-      appState.value = "welcome";
-    }
+      },
+      detail: () => {
+        if (e.key === "Enter") handleNext();
+      },
+      summary: () => {
+        if (e.key === "Enter") continueFromSummary();
+      },
+      completed: () => {
+        if (e.key === "Enter") appState.value = "welcome";
+      },
+    };
+    handlers[appState.value]?.();
   };
 
-  // ====== 生命周期 ======
-  onMounted(() => {
-    window.addEventListener("keydown", handleKeyDown);
-  });
-
-  onUnmounted(() => {
-    window.removeEventListener("keydown", handleKeyDown);
-  });
+  onMounted(() => window.addEventListener("keydown", handleKeyDown));
+  onUnmounted(() => window.removeEventListener("keydown", handleKeyDown));
 </script>
 <template>
-  <!-- 传送到 body 的下一个按钮（必须在 template 内部） -->
+  <!-- ====== Debug 面板（juna 开关） ====== -->
+  <div v-if="debugMode && debugWordInfo" class="debug-panel">
+    <div class="debug-title">🐛 Debug</div>
+    <div class="debug-row">
+      <span class="debug-label">word</span
+      ><span class="debug-val">{{ debugWordInfo.word }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">type</span
+      ><span class="debug-val">{{ debugWordInfo.type_of }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">index</span
+      ><span class="debug-val"
+        >{{ debugWordInfo.wordIndex }} / {{ debugWordInfo.totalWords }}</span
+      >
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">failed_count</span>
+      <span class="debug-val debug-num">{{ debugWordInfo.failed_count }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">schedule</span>
+      <span class="debug-val debug-num">{{ debugWordInfo.schedule }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">isReady</span
+      ><span class="debug-val">{{ debugWordInfo.isReady }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">queue</span
+      ><span class="debug-val"
+        >{{ debugWordInfo.reviewQueueSize }} 个待复习</span
+      >
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">results</span
+      ><span class="debug-val">{{ debugWordInfo.resultsCount }} 次</span>
+    </div>
+  </div>
+
   <Teleport to="body">
     <button
       v-if="appState === 'detail'"
@@ -786,4 +943,50 @@
 
 <style>
   @import "./style.css";
+
+  /* Debug 面板 */
+  .debug-panel {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.85);
+    color: #0f0;
+    font-family: "Cascadia Code", "Fira Code", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #0f0;
+    min-width: 200px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+    user-select: none;
+  }
+  .debug-title {
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+    color: #0f0;
+  }
+  .debug-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .debug-label {
+    color: #8f8;
+  }
+  .debug-val {
+    color: #fff;
+    text-align: right;
+    word-break: break-all;
+  }
+  .debug-num {
+    color: #ff0;
+    font-weight: bold;
+    font-size: 14px;
+  }
 </style>
