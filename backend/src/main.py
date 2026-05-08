@@ -3,9 +3,13 @@ from typing import Literal
 from fastapi import Body, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers.download import router as download_router
-from schemas import ApiResponse, WordItem
+from schemas import ApiResponse, LearningSession, WordItem
 
-from backend.src.services.word_service import get_words_data, get_word_notes
+from backend.src.services.word_service import (
+    get_word_notes,
+    get_words_data,
+    upload_words,
+)
 
 app = FastAPI()
 app.include_router(download_router)
@@ -27,8 +31,14 @@ async def get_words(word_type: Literal["new", "review"]):
     return ApiResponse(data=words)
 
 
-@app.post("/api/word/submit")
-async def create_word(item): ...
+@app.post("/api/word/sync")
+async def sync_word(item: LearningSession = Body(...)):
+    try:
+        await upload_words(item)
+    except Exception as e:
+        print(f"同步单词失败: {e}")
+        return ApiResponse(message="failed", data="同步单词失败")
+    return ApiResponse(message="success", data="同步单词成功")
 
 
 @app.get("/api/test", response_model=ApiResponse)

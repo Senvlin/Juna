@@ -1,8 +1,9 @@
 from typing import Literal
 
-from schemas import WordItem, WordLearningClick
+from schemas import WordItem
 from shanbei_api import ShanbayAPI
 
+from backend.src.schemas import LearningSession, MaterialBook
 from backend.src.services.download_service import CookieManager
 
 cookie_manager = CookieManager()
@@ -11,7 +12,7 @@ api = ShanbayAPI(cookie)
 
 
 async def get_words_data(word_type: Literal["new", "review"]) -> list[WordItem]:
-    book = await api.get_default_material_book()
+    book: MaterialBook | None = await api.get_default_material_book()
     if book:
         if word_type == "new":
             new_words: list[WordItem] = await api.get_words_all(book, "NEW")
@@ -23,8 +24,15 @@ async def get_words_data(word_type: Literal["new", "review"]) -> list[WordItem]:
         raise ValueError("未找到书籍")
 
 
-async def post_word(learning_click: WordLearningClick) -> None:
-    await api.submit_word(learning_click)
+async def upload_words(learning_session: LearningSession):
+    book: MaterialBook | None = await api.get_default_material_book()
+    if book:
+        await api.sync_word(
+            learning_session=learning_session,
+            material_book=book,
+        )
+    else:
+        raise ValueError("未找到书籍")
 
 
 async def get_word_notes(word: WordItem):

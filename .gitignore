@@ -1,0 +1,12 @@
+Lib
+Scripts
+.python-version
+CACHEDIR.TAG
+pyvenv.cfg
+.lock
+shanbei.code-workspace
+.lock
+config.ini
+__pycache__
+*.json
+.pre-commit-config.yaml
