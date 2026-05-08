@@ -77,6 +77,10 @@
   /** 复习队列：存放未掌握的单词 id */
   const reviewQueue = ref([]);
 
+  /** Debug 模式：输入 "juna" 进入，显示单词属性 */
+  const debugMode = ref(false);
+  const debugCode = ref("");
+
   /** 学习序列总长：初始为原始词数，每插入一个复习词就 +1，保证进度条平滑 */
   const totalLearningCount = ref(0);
 
@@ -968,4 +972,50 @@
 
 <style>
   @import "./style.css";
+
+  /* Debug 面板 */
+  .debug-panel {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.85);
+    color: #0f0;
+    font-family: "Cascadia Code", "Fira Code", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #0f0;
+    min-width: 200px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+    user-select: none;
+  }
+  .debug-title {
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+    color: #0f0;
+  }
+  .debug-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .debug-label {
+    color: #8f8;
+  }
+  .debug-val {
+    color: #fff;
+    text-align: right;
+    word-break: break-all;
+  }
+  .debug-num {
+    color: #ff0;
+    font-weight: bold;
+    font-size: 14px;
+  }
 </style>
