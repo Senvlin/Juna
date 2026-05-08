@@ -80,8 +80,6 @@
   /** 学习序列总长：初始为原始词数，每插入一个复习词就 +1，保证进度条平滑 */
   const totalLearningCount = ref(0);
 
-  // ========== 3. 纯计算属性 ==========
-
   const groupedSenses = computed(
     () => currentWordData.value?.groupedSenses ?? [],
   );
@@ -114,8 +112,6 @@
       resultsCount: wordResults.value.length,
     };
   });
-
-  // ========== 4. 无副作用工具函数 ==========
 
   const audioService = {
     play(refEl) {
@@ -231,8 +227,19 @@
     return null;
   }
 
-  // ========== 5. 会话管理（副作用只集中在这里） ==========
-
+  const shouldShowSummary = computed(() => {
+    const count = wordResults.value.length;
+    // 学完的单词数是 7 的倍数，且还有词可学
+    if (count === 0) return false;
+    if (count % 7 !== 0) return false;
+    const next = getNextWord(
+      wordsData.value,
+      currentWordIndex.value + 1,
+      reviewQueue.value,
+      count,
+    );
+    return next !== null;
+  });
   const resetWordUI = () => {
     spellingMode.value = false;
     isCorrect.value = null;
@@ -271,8 +278,6 @@
 
     appState.value = "detail";
   };
-
-  // ========== 6. 业务流程 ==========
 
   const getWordData = async () => {
     try {
@@ -322,65 +327,61 @@
     await fetchNotes();
   };
 
-  const handleNext = () => {
-    const studiedCount = wordResults.value.length;
-    const rawIdx = currentWordIndex.value; // 当前在整个序列里的位置（用作原始词索引的基准）
+  const syncProgress = () => {
+    const payload = buildSyncPayload(wordsData.value, learningStartTime.value);
+    apiService.sync(payload).catch((err) => console.error("同步失败:", err));
+  };
 
-    // 先尝试获取下一个要学的词（纯计算）
+  const handleNext = () => {
+    if (shouldShowSummary.value) {
+      syncProgress();
+      appState.value = "summary";
+      return;
+    }
+    proceedToNext();
+  };
+
+  const proceedToNext = () => {
+    const studiedCount = wordResults.value.length;
     const next = getNextWord(
       wordsData.value,
-      rawIdx + 1, // 下个原始词的索引，简单起见用递增，后面再修正
+      currentWordIndex.value + 1,
       reviewQueue.value,
       studiedCount,
     );
 
     if (!next) {
-      // 没有更多词了 —— 同步并进入总结
-      const payload = buildSyncPayload(
-        wordsData.value,
-        learningStartTime.value,
-      );
-      apiService.sync(payload).catch((err) => console.error("同步失败:", err));
-      appState.value = "summary";
+      syncProgress();
+      appState.value = "summary"; // 最后一批的总结
       return;
     }
 
-    // 如果是复习词，得从队列里正式移除
     if (next.type === "review") {
       reviewQueue.value.shift();
-      totalLearningCount.value += 1; // 插入复习词，总数 +1
+      totalLearningCount.value += 1;
     }
 
-    // 前进到该词
     const newIndex = currentWordIndex.value + 1;
     currentWordIndex.value = newIndex;
     setCurrentWord(next.word);
     resetWordUI();
     appState.value = "learning";
-
-    // 如果批次边界还有复习词，或者原始词用完但队列还有，handleNext 的下次调用会继续处理
-    // 当前这一步只进一个词，后续的压力在下次回车
   };
 
   const continueFromSummary = () => {
-    const nextIdx = currentWordIndex.value + 1;
-    // 重新用 getNextWord 找个方向，但此时状态和 handleNext 第一次判断类似
-    // 简单处理：如果 nextIdx 还没超出 totalLearningCount，继续
+    // 如果最终总结之后已经没词了，进 completed
+    const studiedCount = wordResults.value.length;
     const next = getNextWord(
       wordsData.value,
-      nextIdx,
+      currentWordIndex.value + 1,
       reviewQueue.value,
-      wordResults.value.length,
+      studiedCount,
     );
-    if (next) {
-      if (next.type === "review") {
-        reviewQueue.value.shift();
-        totalLearningCount.value += 1;
-      }
-      advanceToWord(next.word, nextIdx);
-    } else {
+    if (!next) {
       appState.value = "completed";
+      return;
     }
+    proceedToNext();
   };
 
   const viewWordDetail = async (result) => {
@@ -444,6 +445,17 @@
 
   // ====== 键盘路由 ======
   const handleKeyDown = (e) => {
+    // Debug 模式开关：依次按 j u n a 切换
+    if (e.key.length === 1 && /[juna]/.test(e.key)) {
+      debugCode.value += e.key;
+      if (debugCode.value === "juna") {
+        debugMode.value = !debugMode.value;
+        debugCode.value = "";
+      }
+    } else if (debugCode.value) {
+      debugCode.value = "";
+    }
+
     const handlers = {
       welcome: () => {
         if (e.key === "Enter") startLearning();
@@ -481,6 +493,48 @@
   onUnmounted(() => window.removeEventListener("keydown", handleKeyDown));
 </script>
 <template>
+  <!-- ====== Debug 面板（juna 开关） ====== -->
+  <div v-if="debugMode && debugWordInfo" class="debug-panel">
+    <div class="debug-title">🐛 Debug</div>
+    <div class="debug-row">
+      <span class="debug-label">word</span
+      ><span class="debug-val">{{ debugWordInfo.word }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">type</span
+      ><span class="debug-val">{{ debugWordInfo.type_of }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">index</span
+      ><span class="debug-val"
+        >{{ debugWordInfo.wordIndex }} /
+        {{ debugWordInfo.totalInSequence }}</span
+      >
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">failed_count</span>
+      <span class="debug-val debug-num">{{ debugWordInfo.failed_count }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">schedule</span>
+      <span class="debug-val debug-num">{{ debugWordInfo.schedule }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">isReady</span
+      ><span class="debug-val">{{ debugWordInfo.isReady }}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">queue</span
+      ><span class="debug-val"
+        >{{ debugWordInfo.reviewQueueSize }} 个待复习</span
+      >
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">results</span
+      ><span class="debug-val">{{ debugWordInfo.resultsCount }} 次</span>
+    </div>
+  </div>
+
   <Teleport to="body">
     <button
       v-if="appState === 'detail'"
@@ -500,7 +554,7 @@
       >
         <polyline points="9 18 15 12 9 6"></polyline>
       </svg>
-      {{ currentWordIndex + 1 >= totalWords ? "完成" : "下一个" }}
+      {{ currentWordIndex + 1 >= totalLearningCount ? "完成" : "下一个" }}
       <kbd>Enter</kbd>
     </button>
   </Teleport>
@@ -538,7 +592,7 @@
         :style="{ width: progressPercent + '%' }"
       ></div>
       <span class="progress-text"
-        >{{ currentWordIndex + 1 }} / {{ totalWords }}</span
+        >{{ currentWordIndex + 1 }} / {{ totalLearningCount }}</span
       >
     </div>
 
@@ -700,7 +754,7 @@
         :style="{ width: progressPercent + '%' }"
       ></div>
       <span class="progress-text"
-        >{{ currentWordIndex + 1 }} / {{ totalWords }}</span
+        >{{ currentWordIndex + 1 }} / {{ totalLearningCount }}</span
       >
     </div>
 
@@ -835,7 +889,7 @@
         :style="{ width: progressPercent + '%' }"
       ></div>
       <span class="progress-text"
-        >{{ wordResults.length }} / {{ totalWords }}</span
+        >{{ wordResults.length }} / {{ totalLearningCount }}</span
       >
     </div>
 
@@ -891,7 +945,9 @@
         >
           <polyline points="9 18 15 12 9 6"></polyline>
         </svg>
-        {{ currentWordIndex + 1 >= totalWords ? "完成学习" : "继续学习" }}
+        {{
+          currentWordIndex + 1 >= totalLearningCount ? "完成学习" : "继续学习"
+        }}
         <kbd>Enter</kbd>
       </button>
     </div>
@@ -902,7 +958,7 @@
     <div class="completion-icon">🎉</div>
     <h2>今日单词学习完成！</h2>
     <p class="completion-stats">
-      你已完成了 <strong>{{ totalWords }}</strong> 个单词的学习
+      你已完成了 <strong>{{ totalLearningCount }}</strong> 个单词的学习
     </p>
     <button class="action-btn completion-btn" @click="appState = 'welcome'">
       返回首页 <kbd>Enter</kbd>
