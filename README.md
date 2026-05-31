@@ -43,29 +43,36 @@ COOKIE="your_shanbay_cookie_here"
 
 > 从浏览器登录 [扇贝网](https://www.shanbay.com) 后，通过开发者工具获取完整的 Cookie 字符串
 
-### 2. 启动后端
+### w. 启动
+
+#### 方式一：一键启动（推荐）
+
+在项目根目录运行以下命令，即可同时启动后端和前端：
 
 ```bash
-# 激活虚拟环境（推荐）
-# Windows
-.venv\Scripts\activate
+# PowerShell
+powershell -ExecutionPolicy Bypass -File start.ps1
 
-# 安装依赖
-pip install -r requirements.txt
+# 或双击 start.bat（Windows CMD）
+start.bat
 
-# 启动 API 服务（默认 http://127.0.0.1:8080）
-uvicorn backend.src.main:app --host 127.0.0.1 --port 8080 --reload
+# 或从前端目录
+cd frontend && pnpm start
 ```
 
-### 3. 启动前端
+#### 方式二：分别启动
 
 ```bash
+# 终端1 - 启动后端
+uvicorn backend.src.main:app --host 127.0.0.1 --port 8080 --reload
+
+# 终端2 - 启动前端
 cd frontend
 pnpm install
 pnpm dev
 ```
 
-打开浏览器访问即可
+打开浏览器访问 `http://localhost:5173` 即可
 
 ## 致谢
 
