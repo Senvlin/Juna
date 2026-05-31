@@ -1,4 +1,5 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 import { Word } from "./useWord";
 import { useAudio } from "./useAudio";
 import { useSpelling } from "./useSpelling";
@@ -11,6 +12,7 @@ import { buildSyncPayload, getNextWord } from "../utils/helpers";
  */
 export function useLearning() {
   // ====== 子 composables ======
+  const router = useRouter();
   const { ukAudioRef, usAudioRef, playAudio } = useAudio();
 
   const {
@@ -187,6 +189,7 @@ export function useLearning() {
     reviewQueue.value = [];
     wordResults.value = [];
     await getWordData();
+    router.push({ name: "learn" });
   }
 
   async function handleKnown() {
@@ -272,7 +275,10 @@ export function useLearning() {
         if (e.key === "Enter") continueFromSummary();
       },
       completed: () => {
-        if (e.key === "Enter") appState.value = "welcome";
+        if (e.key === "Enter") {
+          appState.value = "welcome";
+          router.push({ name: "welcome" });
+        }
       },
     };
     handlers[appState.value]?.();
