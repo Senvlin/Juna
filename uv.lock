@@ -560,7 +560,7 @@ wheels = [
 
 [[package]]
 name = "shanbei"
-version = "0.0.1a0"
+version = "0.0.1b0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
