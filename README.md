@@ -43,7 +43,7 @@ COOKIE="your_shanbay_cookie_here"
 
 > 从浏览器登录 [扇贝网](https://www.shanbay.com) 后，通过开发者工具获取完整的 Cookie 字符串
 
-### w. 启动
+### 2. 启动
 
 #### 方式一：一键启动（推荐）
 
