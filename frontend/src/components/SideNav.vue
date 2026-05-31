@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { useRouter, useRoute } from "vue-router";
 
 const router = useRouter();
@@ -41,6 +41,19 @@ function close() {
         hamburgerEnter.value = false;
     }, 500);
 }
+
+function handleOpenNav(e) {
+    if (e.key === 'e') {
+        toggle();
+    }
+}
+
+onMounted(() => {
+    window.addEventListener("keydown", handleOpenNav);
+});
+onUnmounted(() => {
+    window.removeEventListener("keydown", handleOpenNav);
+});
 </script>
 
 <template>
@@ -116,20 +129,6 @@ function close() {
     background: #9ca3af;
     border-radius: 2px;
     transition: all 0.25s ease;
-}
-
-.particle {
-    position: fixed;
-    top: 27px;
-    left: 27px;
-    z-index: 210;
-    width: var(--size);
-    height: var(--size);
-    border-radius: 50%;
-    background: var(--color);
-    pointer-events: none;
-    animation: burst 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
-    animation-delay: var(--delay);
 }
 
 @keyframes burst {
