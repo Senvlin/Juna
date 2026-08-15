@@ -46,6 +46,10 @@ function goLearn() {
     startLearning();
     router.push({ name: "learn" });
 }
+
+
+
+
 </script>
 
 <template>
@@ -57,6 +61,7 @@ function goLearn() {
         </div>
         <div class="actions">
             <button class="btn" @click="goLearn">单词学习</button>
+            
             <button class="btn disabled" disabled>阅读训练</button>
         </div>
         <div class="footer-info">

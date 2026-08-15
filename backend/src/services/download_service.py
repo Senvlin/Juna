@@ -1,10 +1,14 @@
 import configparser
 from pathlib import Path
 
+# 配置文件固定放在 backend/config.ini，避免因启动目录不同而找不到
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.ini"
+
 
 class CookieManager:
-    def __init__(self, filename="../config.ini"):
-        self.filename = Path(filename)
+    def __init__(self, filename: str | Path | None = None):
+        self.filename = DEFAULT_CONFIG_PATH if filename is None else Path(filename)
+
         self.config = configparser.ConfigParser(interpolation=None)
         self._load()
 
@@ -18,14 +22,14 @@ class CookieManager:
     def save_cookie(self, key, value):
         self.config["Cookie"][key] = value
         self._save()
-        print(f"✅ 已保存 Cookie: {key} = {value}")
+        print(f"[OK] Cookie saved: {key} (length={len(value)})")
 
     def get_cookie(self, key, fallback=None) -> str:
         if cookie := self.config.get("Cookie", key, fallback=fallback):
             return cookie
         else:
             raise RuntimeError(
-                f"❌ 未找到 Cookie: {key}, 请在config.ini中填写自己的cookie"
+                f"[ERROR] Cookie not found: {key}, please fill it in config.ini"
             )
 
     def _save(self):

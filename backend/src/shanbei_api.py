@@ -3,8 +3,8 @@ import math
 from typing import Literal
 
 import httpx
-from decode import Decoder
-from schemas import (
+from backend.src.decode import Decoder
+from backend.src.schemas import (
     LearningSession,
     MaterialBook,
     VocabNote,
@@ -35,6 +35,9 @@ class ShanbayAPI:
         """
         将 cookie 字符串转换为字典, 方便 httpx 处理
         """
+        cookie_str = cookie_str.strip()
+        if cookie_str.startswith('"') and cookie_str.endswith('"'):
+            cookie_str = cookie_str[1:-1]
         cookies = {}
         if not cookie_str:
             return cookies
@@ -43,6 +46,12 @@ class ShanbayAPI:
                 key, value = item.split("=", 1)
                 cookies[key.strip()] = value.strip()
         return cookies
+
+    def set_cookie(self, cookie: str) -> None:
+        """更新客户端使用的 Cookie 字符串（用于登录后热更新，无需重启服务）"""
+        self.cookie = cookie
+        self.client.cookies.clear()
+        self.client.cookies.update(self._parse_cookies(cookie))
 
     def _parse_material_book(self, data) -> MaterialBook:
         material_book = data["materialbook"]

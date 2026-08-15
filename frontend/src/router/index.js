@@ -11,6 +11,11 @@ const routes = [
     name: "learn",
     component: () => import("../views/LearningShell.vue"),
   },
+  {
+    path: "/login",
+    name: "login",
+    component: () => import("../views/LoginPage.vue"),
+  },
   // 预留扩展：后续可添加更多路由
 ];
 

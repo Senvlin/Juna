@@ -2,9 +2,11 @@ from typing import Literal
 
 from fastapi import Body, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers.download import router as download_router
-from schemas import ApiResponse, LearningSession, WordItem
 
+from backend.src.routers.download import router as download_router
+from backend.src.routers.login import router as login_router
+from backend.src.routers.user import router as user_router
+from backend.src.schemas import ApiResponse, LearningSession, WordItem
 from backend.src.services.word_service import (
     get_word_notes,
     get_words_data,
@@ -13,10 +15,13 @@ from backend.src.services.word_service import (
 
 app = FastAPI()
 app.include_router(download_router)
+app.include_router(login_router)
+app.include_router(user_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",  # Vite 默认端口
+        "http://127.0.0.1:5173",
         "http://127.0.0.1:8080",
     ],
     allow_credentials=True,

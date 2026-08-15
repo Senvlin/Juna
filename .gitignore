@@ -7,6 +7,7 @@ pyvenv.cfg
 shanbei.code-workspace
 .lock
 config.ini
+.login-profile/
 __pycache__
 *.json
 .pre-commit-config.yaml

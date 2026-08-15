@@ -775,7 +775,7 @@ const {
     font-size: 0.8rem;
     color: #6b7280;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
