@@ -15,7 +15,7 @@ if exist "Scripts\activate.bat" (
 )
 
 echo [..] Starting backend...
-start "Shanbei-Backend" cmd /c "uvicorn backend.src.main:app --host 127.0.0.1 --port 8080 --reload"
+start "Shanbei-Backend" cmd /c "Scripts\python.exe -m uvicorn backend.src.main:app --host 127.0.0.1 --port 8080 --reload"
 timeout /t 5 /nobreak >nul
 echo [OK] Backend ready: http://127.0.0.1:8080
 echo.

@@ -26,7 +26,7 @@ if (-not $NoBackend) {
     $activate = "$dir\Scripts\Activate.ps1"
     if (Test-Path $activate) { & $activate }
     Set-Location $dir
-    uvicorn backend.src.main:app --host 127.0.0.1 --port $port --reload
+    & "$dir\Scripts\python.exe" -m uvicorn backend.src.main:app --host 127.0.0.1 --port $port --reload
   } -ArgumentList $RootDir, 8080
 
   Start-Sleep 4

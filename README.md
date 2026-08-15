@@ -31,6 +31,7 @@
 
 - Python **3.11+**
 - Node.js **18+** & pnpm
+- [uv](https://docs.astral.sh/uv/)（Python 依赖管理）
 
 ### 1. 配置 Cookie
 
@@ -42,6 +43,21 @@ COOKIE="your_shanbay_cookie_here"
 ```
 
 > 从浏览器登录 [扇贝网](https://www.shanbay.com) 后，通过开发者工具获取完整的 Cookie 字符串
+
+> 你也可以不再手动复制 Cookie：启动后打开左侧菜单的「登录」，点击「开始外置登录」，
+> 应用会打开真实浏览器，你在浏览器里完成扇贝登录后会自动抓取并保存 Cookie。
+
+### 1.1 安装依赖（如使用外置登录）
+
+本项目使用 `uv` 管理 Python 依赖，新增了 Playwright 用于外置登录：
+
+```powershell
+# 在项目根目录执行
+uv sync
+# 如果本机没有 Edge/Chrome，或者 Playwright 找不到可用浏览器，再执行：
+uv run playwright install chromium
+```
+
 
 ### 2. 启动
 
@@ -64,7 +80,7 @@ cd frontend && pnpm start
 
 ```bash
 # 终端1 - 启动后端
-uvicorn backend.src.main:app --host 127.0.0.1 --port 8080 --reload
+.\Scripts\python.exe -m uvicorn backend.src.main:app --host 127.0.0.1 --port 8080 --reload
 
 # 终端2 - 启动前端
 cd frontend
